@@ -44,7 +44,7 @@ impl Default for Config {
             whisper_model: "gpt-4o-transcribe".to_string(),
             custom_prompt: "A Japanese is speaking. Transcribe it.".to_string(),
             grok_model: "grok-4-1-fast".to_string(),
-            max_length_of_conversation_history: 5,
+            max_length_of_conversation_history: 20,
             input_device_name: None,
             hotkey: default_hotkey(),
         }

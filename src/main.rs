@@ -616,7 +616,19 @@ impl eframe::App for TalkWithGrokApp {
                 ui.add_space(20.0);
 
                 // Conversation history
-                ui.heading("Conversation");
+                ui.horizontal(|ui| {
+                    ui.heading("Conversation");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("🗑 Clear History").clicked() {
+                            self.conversation_history.clear();
+                            if let Some(ref mut grok_client) = self.grok_client {
+                                grok_client.clear_history();
+                                println!("Conversation history cleared");
+                                self.status_message = "Conversation history cleared".to_string();
+                            }
+                        }
+                    });
+                });
                 ui.separator();
 
                 egui::ScrollArea::vertical()
