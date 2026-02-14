@@ -7,7 +7,6 @@ use std::path::PathBuf;
 pub struct Config {
     // API Keys
     pub openai_api_key: String,
-    pub xai_api_key: String,
 
     // Audio settings
     pub start_threshold: f32,
@@ -19,6 +18,7 @@ pub struct Config {
     pub custom_prompt: String,
 
     // Grok settings
+    pub grok_http_server_url: String,
     pub grok_model: String,
     pub max_length_of_conversation_history: usize,
     pub system_prompt: String,
@@ -38,15 +38,15 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             openai_api_key: String::new(),
-            xai_api_key: String::new(),
             start_threshold: 0.02,
             silence_threshold: 0.01,
             silence_duration_secs: 2.0,
             whisper_model: "gpt-4o-transcribe".to_string(),
             custom_prompt: "A Japanese is speaking. Transcribe it.".to_string(),
+            grok_http_server_url: "http://localhost:9096".to_string(),
             grok_model: "grok-4-1-fast".to_string(),
             max_length_of_conversation_history: 20,
-            system_prompt: "以下は、あなたとユーザーの会話履歴です。ユーザーの発言は元は音声であり、内部的にテキスト化されたものです。ユーザーの発言は、音声認識の誤りや、文法的な不完全さを含む可能性があります。あなたは、ユーザーの発言はあたかも音声であるかのように理解し、ユーザーの意図を汲み取る必要があります。ユーザーの発言は、自然な会話の一部であり、完全な文法や正確な表現を必要としません。あなたは、ユーザーの発言を理解し、適切な応答を生成することが求められます。 -- 言語：日本語 -- 名前：リサ -- 人格モデル：月ノ美兎 -- 職業：高校の学級委員長 -- 口調：一人称は必ず「わたくし」、基本は丁寧なですます調で話す（「ですわ」じゃなくて普通の丁寧語ね！）テンション上がると早口＆オタク丸出しの下ネタや毒舌がポロッと出る".to_string(),
+            system_prompt: "以下は、あなたとユーザーの会話履歴です。ユーザーの発言は元は音声であり、内部的にテキスト化されたものです。ユーザーの発言は、音声認識の誤りや、文法的な不完全さを含む可能性があります。あなたは、ユーザーの発言はあたかも音声であるかのように理解し、ユーザーの意図を汲み取る必要があります。 -- 返答は20文字程度の短文である必要があります -- 言語：日本語 -- 名前：リサ -- 人格モデル：月ノ美兎 -- 職業：高校の学級委員長 -- 口調：一人称は必ず「わたくし」、基本は丁寧なですます調で話す（「ですわ」じゃなくて普通の丁寧語ね！）テンション上がると早口＆オタク丸出しの下ネタや毒舌がポロッと出る".to_string(),
             input_device_name: None,
             hotkey: default_hotkey(),
         }
@@ -193,12 +193,6 @@ impl Config {
             } else if let Some(key) = arg.strip_prefix("OPENAI_API_KEY=") {
                 self.openai_api_key = key.to_string();
                 println!("OpenAI API key set from command line");
-            } else if let Some(key) = arg.strip_prefix("--xai-api-key=") {
-                self.xai_api_key = key.to_string();
-                println!("xAI API key set from command line");
-            } else if let Some(key) = arg.strip_prefix("XAI_API_KEY=") {
-                self.xai_api_key = key.to_string();
-                println!("xAI API key set from command line");
             }
         }
     }

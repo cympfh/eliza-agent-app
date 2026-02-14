@@ -95,7 +95,7 @@ struct TalkWithGrokApp {
     // Settings UI
     show_settings: bool,
     settings_openai_key: String,
-    settings_xai_key: String,
+    settings_grok_http_server_url: String,
     settings_start_threshold: f32,
     settings_silence_threshold: f32,
     settings_silence_duration: f32,
@@ -159,7 +159,7 @@ impl TalkWithGrokApp {
             processing_receiver: None,
             show_settings: false,
             settings_openai_key: config.openai_api_key.clone(),
-            settings_xai_key: config.xai_api_key.clone(),
+            settings_grok_http_server_url: config.grok_http_server_url.clone(),
             settings_start_threshold: config.start_threshold,
             settings_silence_threshold: config.silence_threshold,
             settings_silence_duration: config.silence_duration_secs,
@@ -184,10 +184,10 @@ impl TalkWithGrokApp {
         self.status_message = "Monitoring... Speak to start recording.".to_string();
 
         // Initialize GrokClient only if not already initialized
-        if self.grok_client.is_none() && !self.config.xai_api_key.is_empty() {
+        if self.grok_client.is_none() && !self.config.grok_http_server_url.is_empty() {
             println!("Creating new GrokClient");
             self.grok_client = Some(GrokClient::new(
-                self.config.xai_api_key.clone(),
+                self.config.grok_http_server_url.clone(),
                 self.config.grok_model.clone(),
                 self.config.max_length_of_conversation_history,
                 self.config.system_prompt.clone(),
@@ -456,8 +456,8 @@ impl eframe::App for TalkWithGrokApp {
                         ui.text_edit_singleline(&mut self.settings_openai_key);
                         ui.add_space(5.0);
 
-                        ui.label("xAI API Key:");
-                        ui.text_edit_singleline(&mut self.settings_xai_key);
+                        ui.label("Grok HTTP Server URL:");
+                        ui.text_edit_singleline(&mut self.settings_grok_http_server_url);
                         ui.add_space(10.0);
 
                         ui.label("Start Threshold:");
@@ -516,7 +516,7 @@ impl eframe::App for TalkWithGrokApp {
                     ui.horizontal(|ui| {
                         if ui.button("Save").clicked() {
                             self.config.openai_api_key = self.settings_openai_key.clone();
-                            self.config.xai_api_key = self.settings_xai_key.clone();
+                            self.config.grok_http_server_url = self.settings_grok_http_server_url.clone();
                             self.config.start_threshold = self.settings_start_threshold;
                             self.config.silence_threshold = self.settings_silence_threshold;
                             self.config.silence_duration_secs = self.settings_silence_duration;
@@ -542,7 +542,7 @@ impl eframe::App for TalkWithGrokApp {
                         if ui.button("Cancel").clicked() {
                             // Revert settings changes
                             self.settings_openai_key = self.config.openai_api_key.clone();
-                            self.settings_xai_key = self.config.xai_api_key.clone();
+                            self.settings_grok_http_server_url = self.config.grok_http_server_url.clone();
                             self.settings_start_threshold = self.config.start_threshold;
                             self.settings_silence_threshold = self.config.silence_threshold;
                             self.settings_silence_duration = self.config.silence_duration_secs;
@@ -659,11 +659,11 @@ impl eframe::App for TalkWithGrokApp {
                     });
 
                 // Warning if keys not set
-                if self.config.openai_api_key.is_empty() || self.config.xai_api_key.is_empty() {
+                if self.config.openai_api_key.is_empty() || self.config.grok_http_server_url.is_empty() {
                     ui.add_space(10.0);
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 165, 0),
-                        "⚠ API keys not set. Please configure in Settings.",
+                        "⚠ API keys or server URL not set. Please configure in Settings.",
                     );
                 }
             });

@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
-const GROK_API_URL: &str = "https://api.x.ai/v1/chat/completions";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: String,
@@ -19,11 +17,6 @@ struct ChatRequest {
 
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
-    choices: Vec<Choice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Choice {
     message: Message,
 }
 
@@ -47,7 +40,7 @@ impl std::fmt::Display for GrokError {
 impl std::error::Error for GrokError {}
 
 pub struct GrokClient {
-    api_key: String,
+    server_url: String,
     model: String,
     conversation_history: VecDeque<Message>,
     max_history_length: usize,
@@ -55,9 +48,9 @@ pub struct GrokClient {
 }
 
 impl GrokClient {
-    pub fn new(api_key: String, model: String, max_history_length: usize, system_prompt: String) -> Self {
+    pub fn new(server_url: String, model: String, max_history_length: usize, system_prompt: String) -> Self {
         Self {
-            api_key,
+            server_url,
             model,
             conversation_history: VecDeque::new(),
             max_history_length,
@@ -91,11 +84,17 @@ impl GrokClient {
             temperature: 0.0,
         };
 
+        // Build the full URL (server_url + /chat if not already included)
+        let url = if self.server_url.ends_with("/chat") {
+            self.server_url.clone()
+        } else {
+            format!("{}/chat", self.server_url)
+        };
+
         // Send request
         let client = reqwest::blocking::Client::new();
         let response = client
-            .post(GROK_API_URL)
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .post(&url)
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
@@ -121,13 +120,7 @@ impl GrokClient {
             ))
         })?;
 
-        let assistant_message = chat_response
-            .choices
-            .first()
-            .ok_or_else(|| GrokError::ParseError("No choices in response".to_string()))?
-            .message
-            .content
-            .clone();
+        let assistant_message = chat_response.message.content.clone();
 
         // Add assistant message to history
         self.add_message("assistant".to_string(), assistant_message.clone());
@@ -165,7 +158,7 @@ mod tests {
     #[test]
     fn test_history_management() {
         let mut client = GrokClient::new(
-            "test_key".to_string(),
+            "http://localhost:9095".to_string(),
             "grok-beta".to_string(),
             3,
             "Test system prompt".to_string()
@@ -189,7 +182,7 @@ mod tests {
     #[test]
     fn test_clear_history() {
         let mut client = GrokClient::new(
-            "test_key".to_string(),
+            "http://localhost:9095".to_string(),
             "grok-beta".to_string(),
             5,
             "Test system prompt".to_string()
