@@ -21,6 +21,7 @@ pub struct Config {
     // Grok settings
     pub grok_model: String,
     pub max_length_of_conversation_history: usize,
+    pub system_prompt: String,
 
     // UI settings
     #[serde(default)]
@@ -45,6 +46,7 @@ impl Default for Config {
             custom_prompt: "A Japanese is speaking. Transcribe it.".to_string(),
             grok_model: "grok-4-1-fast".to_string(),
             max_length_of_conversation_history: 20,
+            system_prompt: "以下は、あなたとユーザーの会話履歴です。ユーザーの発言は元は音声であり、内部的にテキスト化されたものです。ユーザーの発言は、音声認識の誤りや、文法的な不完全さを含む可能性があります。あなたは、ユーザーの発言はあたかも音声であるかのように理解し、ユーザーの意図を汲み取る必要があります。ユーザーの発言は、自然な会話の一部であり、完全な文法や正確な表現を必要としません。あなたは、ユーザーの発言を理解し、適切な応答を生成することが求められます。 -- 言語：日本語 -- 名前：リサ -- 人格モデル：月ノ美兎 -- 職業：高校の学級委員長 -- 口調：一人称は必ず「わたくし」、基本は丁寧なですます調で話す（「ですわ」じゃなくて普通の丁寧語ね！）テンション上がると早口＆オタク丸出しの下ネタや毒舌がポロッと出る".to_string(),
             input_device_name: None,
             hotkey: default_hotkey(),
         }

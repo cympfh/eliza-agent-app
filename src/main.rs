@@ -103,6 +103,7 @@ struct TalkWithGrokApp {
     settings_custom_prompt: String,
     settings_grok_model: String,
     settings_max_history: usize,
+    settings_system_prompt: String,
 
     // Device management
     available_devices: Vec<String>,
@@ -166,6 +167,7 @@ impl TalkWithGrokApp {
             settings_custom_prompt: config.custom_prompt.clone(),
             settings_grok_model: config.grok_model.clone(),
             settings_max_history: config.max_length_of_conversation_history,
+            settings_system_prompt: config.system_prompt.clone(),
             available_devices,
             selected_device_index,
             hotkey_manager,
@@ -188,6 +190,7 @@ impl TalkWithGrokApp {
                 self.config.xai_api_key.clone(),
                 self.config.grok_model.clone(),
                 self.config.max_length_of_conversation_history,
+                self.config.system_prompt.clone(),
             ));
         } else if self.grok_client.is_some() {
             println!("Reusing existing GrokClient with conversation history");
@@ -485,6 +488,10 @@ impl eframe::App for TalkWithGrokApp {
                         ui.add(egui::Slider::new(&mut self.settings_max_history, 1..=20));
                         ui.add_space(10.0);
 
+                        ui.label("System Prompt:");
+                        ui.add(egui::TextEdit::multiline(&mut self.settings_system_prompt).desired_rows(5));
+                        ui.add_space(10.0);
+
                         ui.label("Input Device:");
                         egui::ComboBox::from_id_salt("input_device_combo")
                             .selected_text(
@@ -517,6 +524,7 @@ impl eframe::App for TalkWithGrokApp {
                             self.config.custom_prompt = self.settings_custom_prompt.clone();
                             self.config.grok_model = self.settings_grok_model.clone();
                             self.config.max_length_of_conversation_history = self.settings_max_history;
+                            self.config.system_prompt = self.settings_system_prompt.clone();
 
                             // Save selected input device
                             self.config.input_device_name = self
@@ -542,6 +550,7 @@ impl eframe::App for TalkWithGrokApp {
                             self.settings_custom_prompt = self.config.custom_prompt.clone();
                             self.settings_grok_model = self.config.grok_model.clone();
                             self.settings_max_history = self.config.max_length_of_conversation_history;
+                            self.settings_system_prompt = self.config.system_prompt.clone();
 
                             // Restore device index
                             self.selected_device_index =

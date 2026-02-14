@@ -51,15 +51,17 @@ pub struct GrokClient {
     model: String,
     conversation_history: VecDeque<Message>,
     max_history_length: usize,
+    system_prompt: String,
 }
 
 impl GrokClient {
-    pub fn new(api_key: String, model: String, max_history_length: usize) -> Self {
+    pub fn new(api_key: String, model: String, max_history_length: usize, system_prompt: String) -> Self {
         Self {
             api_key,
             model,
             conversation_history: VecDeque::new(),
             max_history_length,
+            system_prompt,
         }
     }
 
@@ -74,10 +76,17 @@ impl GrokClient {
             self.conversation_history.len()
         );
 
+        // Prepare messages with system prompt at the beginning
+        let mut messages: Vec<Message> = vec![Message {
+            role: "system".to_string(),
+            content: self.system_prompt.clone(),
+        }];
+        messages.extend(self.conversation_history.iter().cloned());
+
         // Prepare request
         let request = ChatRequest {
             model: self.model.clone(),
-            messages: self.conversation_history.iter().cloned().collect(),
+            messages,
             stream: false,
             temperature: 0.0,
         };
@@ -155,7 +164,12 @@ mod tests {
 
     #[test]
     fn test_history_management() {
-        let mut client = GrokClient::new("test_key".to_string(), "grok-beta".to_string(), 3);
+        let mut client = GrokClient::new(
+            "test_key".to_string(),
+            "grok-beta".to_string(),
+            3,
+            "Test system prompt".to_string()
+        );
 
         client.add_message("user".to_string(), "Message 1".to_string());
         assert_eq!(client.conversation_history.len(), 1);
@@ -174,7 +188,12 @@ mod tests {
 
     #[test]
     fn test_clear_history() {
-        let mut client = GrokClient::new("test_key".to_string(), "grok-beta".to_string(), 5);
+        let mut client = GrokClient::new(
+            "test_key".to_string(),
+            "grok-beta".to_string(),
+            5,
+            "Test system prompt".to_string()
+        );
         client.add_message("user".to_string(), "Test".to_string());
         assert_eq!(client.conversation_history.len(), 1);
 
