@@ -1,6 +1,6 @@
 mod audio;
 mod config;
-mod grok;
+mod eliza;
 mod openai;
 mod vrchat;
 
@@ -11,7 +11,7 @@ use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
     GlobalHotKeyEvent, GlobalHotKeyManager,
 };
-use grok::GrokClient;
+use eliza::ElizaClient;
 use openai::OpenAIClient;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -31,7 +31,7 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "Talk with Grok - VRChat Voice Chat",
+        "Eliza Agent - VRChat Voice Chat",
         options,
         Box::new(move |cc| {
             // Setup Japanese font
@@ -54,7 +54,7 @@ fn main() -> eframe::Result<()> {
                 .insert(0, "japanese".to_owned());
             cc.egui_ctx.set_fonts(fonts);
 
-            Ok(Box::new(TalkWithGrokApp::new(config)))
+            Ok(Box::new(ElizaAgentApp::new(config)))
         }),
     )
 }
@@ -70,13 +70,13 @@ enum AppState {
 enum ProcessingMessage {
     TranscriptionInProgress,
     TranscriptionComplete(String),
-    GrokInProgress,
-    GrokComplete(String),
-    Complete(Option<GrokClient>), // Processing complete, return GrokClient
+    ElizaInProgress,
+    ElizaComplete(String),
+    Complete(Option<ElizaClient>), // Processing complete, return ElizaClient
     Error(String),
 }
 
-struct TalkWithGrokApp {
+struct ElizaAgentApp {
     state: AppState,
     config: Config,
     current_preset: String,
@@ -88,7 +88,7 @@ struct TalkWithGrokApp {
     audio_file_path: Option<PathBuf>,
 
     // Clients
-    grok_client: Option<GrokClient>,
+    eliza_client: Option<ElizaClient>,
 
     // Background processing
     processing_receiver: Option<Receiver<ProcessingMessage>>,
@@ -96,13 +96,13 @@ struct TalkWithGrokApp {
     // Settings UI
     show_settings: bool,
     settings_openai_key: String,
-    settings_grok_http_server_url: String,
+    settings_agent_server_url: String,
     settings_start_threshold: f32,
     settings_silence_threshold: f32,
     settings_silence_duration: f32,
     settings_whisper_model: String,
     settings_custom_prompt: String,
-    settings_grok_model: String,
+    settings_agent_model: String,
     settings_max_history: usize,
     settings_system_prompt: String,
 
@@ -119,7 +119,7 @@ struct TalkWithGrokApp {
     conversation_history: Vec<(String, String)>, // (role, message)
 }
 
-impl TalkWithGrokApp {
+impl ElizaAgentApp {
     fn new(config: Config) -> Self {
         // Get available input devices
         let mut available_devices = audio::get_input_devices().unwrap_or_else(|e| {
@@ -157,17 +157,17 @@ impl TalkWithGrokApp {
             recording_info: String::new(),
             audio_recorder: None,
             audio_file_path: None,
-            grok_client: None,
+            eliza_client: None,
             processing_receiver: None,
             show_settings: false,
             settings_openai_key: config.openai_api_key.clone(),
-            settings_grok_http_server_url: config.grok_http_server_url.clone(),
+            settings_agent_server_url: config.agent_server_url.clone(),
             settings_start_threshold: config.start_threshold,
             settings_silence_threshold: config.silence_threshold,
             settings_silence_duration: config.silence_duration_secs,
             settings_whisper_model: config.whisper_model.clone(),
             settings_custom_prompt: config.custom_prompt.clone(),
-            settings_grok_model: config.grok_model.clone(),
+            settings_agent_model: config.agent_model.clone(),
             settings_max_history: config.max_length_of_conversation_history,
             settings_system_prompt: config.system_prompt.clone(),
             available_devices,
@@ -185,17 +185,17 @@ impl TalkWithGrokApp {
         self.state = AppState::Monitoring;
         self.status_message = "Monitoring... Speak to start recording.".to_string();
 
-        // Initialize GrokClient only if not already initialized
-        if self.grok_client.is_none() && !self.config.grok_http_server_url.is_empty() {
-            println!("Creating new GrokClient");
-            self.grok_client = Some(GrokClient::new(
-                self.config.grok_http_server_url.clone(),
-                self.config.grok_model.clone(),
+        // Initialize ElizaClient only if not already initialized
+        if self.eliza_client.is_none() && !self.config.agent_server_url.is_empty() {
+            println!("Creating new ElizaClient");
+            self.eliza_client = Some(ElizaClient::new(
+                self.config.agent_server_url.clone(),
+                self.config.agent_model.clone(),
                 self.config.max_length_of_conversation_history,
                 self.config.system_prompt.clone(),
             ));
-        } else if self.grok_client.is_some() {
-            println!("Reusing existing GrokClient with conversation history");
+        } else if self.eliza_client.is_some() {
+            println!("Reusing existing ElizaClient with conversation history");
         }
 
         // Start audio monitoring
@@ -249,13 +249,13 @@ impl TalkWithGrokApp {
 
         // Update settings UI
         self.settings_openai_key = self.config.openai_api_key.clone();
-        self.settings_grok_http_server_url = self.config.grok_http_server_url.clone();
+        self.settings_agent_server_url = self.config.agent_server_url.clone();
         self.settings_start_threshold = self.config.start_threshold;
         self.settings_silence_threshold = self.config.silence_threshold;
         self.settings_silence_duration = self.config.silence_duration_secs;
         self.settings_whisper_model = self.config.whisper_model.clone();
         self.settings_custom_prompt = self.config.custom_prompt.clone();
-        self.settings_grok_model = self.config.grok_model.clone();
+        self.settings_agent_model = self.config.agent_model.clone();
         self.settings_max_history = self.config.max_length_of_conversation_history;
         self.settings_system_prompt = self.config.system_prompt.clone();
 
@@ -269,8 +269,8 @@ impl TalkWithGrokApp {
             0
         };
 
-        // Clear GrokClient to force re-initialization
-        self.grok_client = None;
+        // Clear ElizaClient to force re-initialization
+        self.eliza_client = None;
         self.conversation_history.clear();
 
         self.status_message = format!("Switched to {}", Config::preset_display_name(preset_name));
@@ -319,8 +319,8 @@ impl TalkWithGrokApp {
         let whisper_model = self.config.whisper_model.clone();
         let custom_prompt = self.config.custom_prompt.clone();
 
-        // Take ownership of grok_client to use in the thread
-        let grok_client = self.grok_client.take();
+        // Take ownership of eliza_client to use in the thread
+        let eliza_client = self.eliza_client.take();
 
         std::thread::spawn(move || {
             let _returned_client = process_pipeline(
@@ -328,10 +328,10 @@ impl TalkWithGrokApp {
                 openai_key,
                 whisper_model,
                 custom_prompt,
-                grok_client,
+                eliza_client,
                 sender,
             );
-            // GrokClient is returned via ProcessingMessage::VRChatComplete
+            // ElizaClient is returned via ProcessingMessage::VRChatComplete
         });
     }
 }
@@ -341,9 +341,9 @@ fn process_pipeline(
     openai_key: String,
     whisper_model: String,
     custom_prompt: String,
-    grok_client: Option<GrokClient>,
+    eliza_client: Option<ElizaClient>,
     sender: Sender<ProcessingMessage>,
-) -> Option<GrokClient> {
+) -> Option<ElizaClient> {
     // Step 1: Transcribe
     let _ = sender.send(ProcessingMessage::TranscriptionInProgress);
 
@@ -355,7 +355,7 @@ fn process_pipeline(
                 "Transcription failed: {}",
                 e
             )));
-            return grok_client;
+            return eliza_client;
         }
     };
 
@@ -363,33 +363,33 @@ fn process_pipeline(
         transcribed_text.clone(),
     ));
 
-    // Step 2: Send to Grok
-    let _ = sender.send(ProcessingMessage::GrokInProgress);
+    // Step 2: Send to Eliza
+    let _ = sender.send(ProcessingMessage::ElizaInProgress);
 
-    if grok_client.is_none() {
-        let _ = sender.send(ProcessingMessage::Error("Grok client not initialized".to_string()));
+    if eliza_client.is_none() {
+        let _ = sender.send(ProcessingMessage::Error("Eliza client not initialized".to_string()));
         return None;
     }
 
-    let mut client = grok_client.unwrap();
-    let grok_response = match client.send_message(&transcribed_text) {
+    let mut client = eliza_client.unwrap();
+    let eliza_response = match client.send_message(&transcribed_text) {
         Ok(response) => response,
         Err(e) => {
-            let _ = sender.send(ProcessingMessage::Error(format!("Grok failed: {}", e)));
+            let _ = sender.send(ProcessingMessage::Error(format!("Eliza failed: {}", e)));
             return Some(client);
         }
     };
 
-    let _ = sender.send(ProcessingMessage::GrokComplete(grok_response.clone()));
+    let _ = sender.send(ProcessingMessage::ElizaComplete(eliza_response.clone()));
 
     // Step 3: Send to VRChat
     println!("===== VRChat Sending =====");
-    println!("Response length: {} bytes, {} chars", grok_response.len(), grok_response.chars().count());
-    let preview: String = grok_response.chars().take(50).collect();
+    println!("Response length: {} bytes, {} chars", eliza_response.len(), eliza_response.chars().count());
+    let preview: String = eliza_response.chars().take(50).collect();
     println!("Response preview: {:?}...", preview);
 
     let vrchat = VRChatClient::new();
-    match vrchat.send_message(grok_response.as_str()) {
+    match vrchat.send_message(eliza_response.as_str()) {
         Ok(_) => {
             println!("✓ VRChat message sent successfully");
         }
@@ -404,7 +404,7 @@ fn process_pipeline(
     None
 }
 
-impl eframe::App for TalkWithGrokApp {
+impl eframe::App for ElizaAgentApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for global hotkey events
         if let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
@@ -430,19 +430,19 @@ impl eframe::App for TalkWithGrokApp {
                         self.conversation_history
                             .push(("You".to_string(), text.clone()));
                     }
-                    ProcessingMessage::GrokInProgress => {
-                        self.status_message = "Asking Grok...".to_string();
+                    ProcessingMessage::ElizaInProgress => {
+                        self.status_message = "Asking Eliza...".to_string();
                     }
-                    ProcessingMessage::GrokComplete(response) => {
-                        self.status_message = format!("Grok: {}", response);
+                    ProcessingMessage::ElizaComplete(response) => {
+                        self.status_message = format!("Eliza: {}", response);
                         self.conversation_history
-                            .push(("Grok".to_string(), response.clone()));
+                            .push(("Agent".to_string(), response.clone()));
                     }
-                    ProcessingMessage::Complete(grok_client) => {
+                    ProcessingMessage::Complete(eliza_client) => {
                         self.status_message = "Sent to VRChat! Ready for next input.".to_string();
                         self.processing_receiver = None;
-                        // Restore the grok_client for next use
-                        self.grok_client = grok_client;
+                        // Restore the eliza_client for next use
+                        self.eliza_client = eliza_client;
                         self.start_monitoring();
                     }
                     ProcessingMessage::Error(error) => {
@@ -499,8 +499,8 @@ impl eframe::App for TalkWithGrokApp {
                         ui.text_edit_singleline(&mut self.settings_openai_key);
                         ui.add_space(5.0);
 
-                        ui.label("Grok HTTP Server URL:");
-                        ui.text_edit_singleline(&mut self.settings_grok_http_server_url);
+                        ui.label("Agent Server URL:");
+                        ui.text_edit_singleline(&mut self.settings_agent_server_url);
                         ui.add_space(10.0);
 
                         ui.label("Start Threshold:");
@@ -523,8 +523,8 @@ impl eframe::App for TalkWithGrokApp {
                         ui.add(egui::TextEdit::multiline(&mut self.settings_custom_prompt).desired_rows(2));
                         ui.add_space(10.0);
 
-                        ui.label("Grok Model:");
-                        ui.text_edit_singleline(&mut self.settings_grok_model);
+                        ui.label("Agent Model:");
+                        ui.text_edit_singleline(&mut self.settings_agent_model);
                         ui.add_space(5.0);
 
                         ui.label("Max Conversation History:");
@@ -559,13 +559,13 @@ impl eframe::App for TalkWithGrokApp {
                     ui.horizontal(|ui| {
                         if ui.button("Save").clicked() {
                             self.config.openai_api_key = self.settings_openai_key.clone();
-                            self.config.grok_http_server_url = self.settings_grok_http_server_url.clone();
+                            self.config.agent_server_url = self.settings_agent_server_url.clone();
                             self.config.start_threshold = self.settings_start_threshold;
                             self.config.silence_threshold = self.settings_silence_threshold;
                             self.config.silence_duration_secs = self.settings_silence_duration;
                             self.config.whisper_model = self.settings_whisper_model.clone();
                             self.config.custom_prompt = self.settings_custom_prompt.clone();
-                            self.config.grok_model = self.settings_grok_model.clone();
+                            self.config.agent_model = self.settings_agent_model.clone();
                             self.config.max_length_of_conversation_history = self.settings_max_history;
                             self.config.system_prompt = self.settings_system_prompt.clone();
 
@@ -589,13 +589,13 @@ impl eframe::App for TalkWithGrokApp {
                         if ui.button("Cancel").clicked() {
                             // Revert settings changes
                             self.settings_openai_key = self.config.openai_api_key.clone();
-                            self.settings_grok_http_server_url = self.config.grok_http_server_url.clone();
+                            self.settings_agent_server_url = self.config.agent_server_url.clone();
                             self.settings_start_threshold = self.config.start_threshold;
                             self.settings_silence_threshold = self.config.silence_threshold;
                             self.settings_silence_duration = self.config.silence_duration_secs;
                             self.settings_whisper_model = self.config.whisper_model.clone();
                             self.settings_custom_prompt = self.config.custom_prompt.clone();
-                            self.settings_grok_model = self.config.grok_model.clone();
+                            self.settings_agent_model = self.config.agent_model.clone();
                             self.settings_max_history = self.config.max_length_of_conversation_history;
                             self.settings_system_prompt = self.config.system_prompt.clone();
 
@@ -623,7 +623,7 @@ impl eframe::App for TalkWithGrokApp {
 
                 // Header with settings button
                 ui.horizontal(|ui| {
-                    ui.heading("Talk with Grok");
+                    ui.heading("Eliza Agent");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("⚙ Settings").clicked() {
                             self.show_settings = true;
@@ -695,8 +695,8 @@ impl eframe::App for TalkWithGrokApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("🗑 Clear History").clicked() {
                             self.conversation_history.clear();
-                            if let Some(ref mut grok_client) = self.grok_client {
-                                grok_client.clear_history();
+                            if let Some(ref mut eliza_client) = self.eliza_client {
+                                eliza_client.clear_history();
                                 println!("Conversation history cleared");
                                 self.status_message = "Conversation history cleared".to_string();
                             }
@@ -724,7 +724,7 @@ impl eframe::App for TalkWithGrokApp {
                     });
 
                 // Warning if keys not set
-                if self.config.openai_api_key.is_empty() || self.config.grok_http_server_url.is_empty() {
+                if self.config.openai_api_key.is_empty() || self.config.agent_server_url.is_empty() {
                     ui.add_space(10.0);
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 165, 0),

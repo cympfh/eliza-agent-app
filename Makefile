@@ -22,13 +22,13 @@ setup-windows-target:
 build-windows: setup-windows-target
 	cargo build --target x86_64-pc-windows-gnu
 	@echo ""
-	@echo "Debug executable created at: target/x86_64-pc-windows-gnu/debug/talk-with-grok.exe"
+	@echo "Debug executable created at: target/x86_64-pc-windows-gnu/debug/eliza-agent.exe"
 
 # Build release Windows executable
 build-windows-release: setup-windows-target
 	cargo build --release --target x86_64-pc-windows-gnu
 	@echo ""
-	@echo "Release executable created at: target/x86_64-pc-windows-gnu/release/talk-with-grok.exe"
+	@echo "Release executable created at: target/x86_64-pc-windows-gnu/release/eliza-agent.exe"
 
 # Clean build artifacts
 clean:

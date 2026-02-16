@@ -17,9 +17,9 @@ pub struct Config {
     pub whisper_model: String,
     pub custom_prompt: String,
 
-    // Grok settings
-    pub grok_http_server_url: String,
-    pub grok_model: String,
+    // Eliza settings
+    pub agent_server_url: String,
+    pub agent_model: String,
     pub max_length_of_conversation_history: usize,
     pub system_prompt: String,
 
@@ -43,8 +43,8 @@ impl Default for Config {
             silence_duration_secs: 2.0,
             whisper_model: "gpt-4o-transcribe".to_string(),
             custom_prompt: "A Japanese is speaking. Transcribe it.".to_string(),
-            grok_http_server_url: "http://localhost:9096".to_string(),
-            grok_model: "grok-4-1-fast".to_string(),
+            agent_server_url: "http://localhost:9096".to_string(),
+            agent_model: "grok-4-1-fast".to_string(),
             max_length_of_conversation_history: 20,
             system_prompt: "以下は、あなたとユーザーの会話履歴です。ユーザーの発言は元は音声であり、内部的にテキスト化されたものです。ユーザーの発言は、音声認識の誤りや、文法的な不完全さを含む可能性があります。あなたは、ユーザーの発言はあたかも音声であるかのように理解し、ユーザーの意図を汲み取る必要があります。 -- 返答は20文字程度の短文である必要があります -- 言語：日本語 -- 名前：リサ -- 人格モデル：月ノ美兎 -- 職業：高校の学級委員長 -- 口調：一人称は必ず「わたくし」、基本は丁寧なですます調で話す（「ですわ」じゃなくて普通の丁寧語ね！）テンション上がると早口＆オタク丸出しの下ネタや毒舌がポロッと出る".to_string(),
             input_device_name: None,
@@ -134,7 +134,7 @@ impl Config {
     /// Get the config directory
     pub fn config_dir() -> Result<PathBuf, String> {
         let config_dir = dirs::config_dir().ok_or("Failed to get config directory")?;
-        let app_config_dir = config_dir.join("talk-with-grok");
+        let app_config_dir = config_dir.join("eliza-agent");
 
         if !app_config_dir.exists() {
             fs::create_dir_all(&app_config_dir)

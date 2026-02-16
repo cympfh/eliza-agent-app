@@ -1,10 +1,10 @@
 [package]
-name = "talk-with-grok"
+name = "eliza-agent"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["cympfh"]
-description = "Voice conversation with Grok AI in VRChat using VAD"
+description = "Voice conversation with AI Agent in VRChat using VAD"
 
 [dependencies]
 eframe = "0.29"

@@ -21,25 +21,25 @@ struct ChatResponse {
 }
 
 #[derive(Debug)]
-pub enum GrokError {
+pub enum ElizaError {
     NetworkError(String),
     ApiError(String),
     ParseError(String),
 }
 
-impl std::fmt::Display for GrokError {
+impl std::fmt::Display for ElizaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GrokError::NetworkError(msg) => write!(f, "Network error: {}", msg),
-            GrokError::ApiError(msg) => write!(f, "API error: {}", msg),
-            GrokError::ParseError(msg) => write!(f, "Parse error: {}", msg),
+            ElizaError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            ElizaError::ApiError(msg) => write!(f, "API error: {}", msg),
+            ElizaError::ParseError(msg) => write!(f, "Parse error: {}", msg),
         }
     }
 }
 
-impl std::error::Error for GrokError {}
+impl std::error::Error for ElizaError {}
 
-pub struct GrokClient {
+pub struct ElizaClient {
     server_url: String,
     model: String,
     conversation_history: VecDeque<Message>,
@@ -47,7 +47,7 @@ pub struct GrokClient {
     system_prompt: String,
 }
 
-impl GrokClient {
+impl ElizaClient {
     pub fn new(server_url: String, model: String, max_history_length: usize, system_prompt: String) -> Self {
         Self {
             server_url,
@@ -58,12 +58,12 @@ impl GrokClient {
         }
     }
 
-    /// Send a message to Grok and get a response
-    pub fn send_message(&mut self, user_message: &str) -> Result<String, GrokError> {
+    /// Send a message to Eliza and get a response
+    pub fn send_message(&mut self, user_message: &str) -> Result<String, ElizaError> {
         // Add user message to history
         self.add_message("user".to_string(), user_message.to_string());
 
-        println!("Sending message to Grok: {}", user_message);
+        println!("Sending message to Eliza: {}", user_message);
         println!(
             "Current history length: {}",
             self.conversation_history.len()
@@ -98,15 +98,15 @@ impl GrokClient {
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
-            .map_err(|e| GrokError::NetworkError(format!("Failed to send request: {}", e)))?;
+            .map_err(|e| ElizaError::NetworkError(format!("Failed to send request: {}", e)))?;
 
         let status = response.status();
         let response_text = response
             .text()
-            .map_err(|e| GrokError::NetworkError(format!("Failed to read response: {}", e)))?;
+            .map_err(|e| ElizaError::NetworkError(format!("Failed to read response: {}", e)))?;
 
         if !status.is_success() {
-            return Err(GrokError::ApiError(format!(
+            return Err(ElizaError::ApiError(format!(
                 "API returned status {}: {}",
                 status, response_text
             )));
@@ -114,7 +114,7 @@ impl GrokClient {
 
         // Parse response
         let chat_response: ChatResponse = serde_json::from_str(&response_text).map_err(|e| {
-            GrokError::ParseError(format!(
+            ElizaError::ParseError(format!(
                 "Failed to parse response: {}. Response was: {}",
                 e, response_text
             ))
@@ -125,7 +125,7 @@ impl GrokClient {
         // Add assistant message to history
         self.add_message("assistant".to_string(), assistant_message.clone());
 
-        println!("Grok response: {}", assistant_message);
+        println!("Eliza response: {}", assistant_message);
         Ok(assistant_message)
     }
 
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_history_management() {
-        let mut client = GrokClient::new(
+        let mut client = ElizaClient::new(
             "http://localhost:9095".to_string(),
             "grok-beta".to_string(),
             3,
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn test_clear_history() {
-        let mut client = GrokClient::new(
+        let mut client = ElizaClient::new(
             "http://localhost:9095".to_string(),
             "grok-beta".to_string(),
             5,

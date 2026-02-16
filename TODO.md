@@ -5,7 +5,7 @@ See README.md and below
 ## Architecture
 
 ```
-Windows mic -> [Text-to-Speech] -> Grok -> [VRChat (via OSC)]
+Windows mic -> [Text-to-Speech] -> AI Agent -> [VRChat (via OSC)]
 ```
 
 ### References
@@ -20,28 +20,29 @@ this is windows native application, so OSC is sent to localhost.
 **Settings**
 
 OPENAI_API_KEY for Text-to-Speech
-XAI_API_KEY for Grok
-max_length_of_conversation_history (for Grok, default=5)
+max_length_of_conversation_history (for AI Agent, default=5)
 
-**Start to talk with Grok**
-websocket connection to Grok is established.
+Note: XAI_API_KEY is configured on the server side (eliza-agent-server), not in this client.
 
-**Stop talking with Grok**
-websocket connection to Grok is closed.
+**Start to talk with AI Agent**
+websocket connection to AI Agent is established.
+
+**Stop talking with AI Agent**
+websocket connection to AI Agent is closed.
 
 **model for Text-to-Speech**
 
-**model for Grok**
+**model for AI Agent**
 
 ## logging
 
 セッションごとにログファイルを作成して、会話の履歴やエラー情報を記録する。
 
-~/.talk-with-grok/logs/session_YYYYMMDD_HHMMSS.log
+~/.eliza-agent/logs/session_YYYYMMDD_HHMMSS.log
 
 ```
 {"type": "conversation", "timestamp": "2024-06-01T12:00:00Z", "message": "Hello", "source": "user"}
-{"type": "conversation", "timestamp": "2024-06-01T12:00:05Z", "message": "Hi there! How can I assist you today?", "source": "grok"}
+{"type": "conversation", "timestamp": "2024-06-01T12:00:05Z", "message": "Hi there! How can I assist you today?", "source": "eliza"}
 {"type": "error", "timestamp": "2024-06-01T12:01:00Z", "message": "connection lost"}
 ```
 

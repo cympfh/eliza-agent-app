@@ -120,22 +120,22 @@ vrchatbox --verbose "Debug"      # デバッグ情報表示
 
 ---
 
-## talk-with-grok への応用
+## eliza-agent への応用
 
 ### 必要な変更点
 
 1. **音声認識部分**: winhのコードをベースにできるが、以下を調整:
-   - GUIは必要に応じて変更（Grok会話用のUI）
+   - GUIは必要に応じて変更（AI Agent会話用のUI）
    - OpenAI Whisper APIの処理はほぼそのまま流用可能
 
-2. **Grok連携**: **新規実装が必要**
+2. **AI Agent連携**: **新規実装が必要**
    - xAI APIとのWebSocket接続
    - 会話履歴の管理（max_length_of_conversation_history を考慮）
    - ストリーミングレスポンスの処理
 
 3. **VRChat出力**: vrchatboxをそのまま使用可能
    - subprocess でコマンド実行
-   - Grokの応答を標準入力経由で渡す
+   - AI Agentの応答を標準入力経由で渡す
    - `--lazy` オプションで自然なタイピング演出が可能
 
 ### 再利用可能なコンポーネント
@@ -143,18 +143,18 @@ vrchatbox --verbose "Debug"      # デバッグ情報表示
 - ✅ `audio.rs`: ほぼそのまま流用可能
 - ✅ `openai.rs`: Whisper API部分は流用可能
 - ✅ `config.rs`: 設定管理の基本構造を流用（項目は追加）
-- ⚠️ `main.rs`: UI部分は要調整（Grok会話UI）
+- ⚠️ `main.rs`: UI部分は要調整（AI Agent会話UI）
 - ✅ `vrchatbox`: 外部コマンドとしてそのまま使用可能
 
 ### 新規実装が必要な部分
 
-1. **xAI Grok API クライアント**
+1. **xAI Agent API クライアント**
    - WebSocket接続
    - 会話履歴管理
    - ストリーミングレスポンス処理
 
 2. **会話状態管理**
-   - 録音 → 認識 → Grok送信 → 応答受信 → VRChat送信の状態遷移
+   - 録音 → 認識 → AI Agent送信 → 応答受信 → VRChat送信の状態遷移
    - エラー時のリトライやフォールバック
 
 3. **UI**

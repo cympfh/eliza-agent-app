@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**talk-with-grok** - A Rust native application for Windows 11 that enables voice conversations with Grok AI in VRChat.
+**eliza-agent** - A Rust native application for Windows 11 that enables voice conversations with AI Agent in VRChat.
 
 ## Current Implementation Status
 
@@ -25,7 +25,7 @@ We are currently implementing a VAD (Voice Activity Detection) approach that con
     ↓
 [Speech-to-Text (OpenAI Whisper)]
     ↓
-[Grok API (HTTP POST)]
+[Eliza API (HTTP POST)]
     ↓
 [VRChat OSC Output via vrchatbox]
     ↓
@@ -40,7 +40,7 @@ enum AppState {
     Idle,        // Stopped
     Monitoring,  // Waiting for voice (monitoring volume)
     Recording,   // Recording audio
-    Processing,  // Transcribing and sending to Grok
+    Processing,  // Transcribing and sending to Eliza
 }
 ```
 
@@ -59,7 +59,7 @@ silence_duration_secs: f32 // Duration of silence to stop (e.g., 2.0)
 
 ### Alternative Approach: Option 2 (Not Currently Implemented)
 
-An alternative approach using Grok's real-time audio API (WebSocket streaming) was considered but **not chosen** because:
+An alternative approach using Eliza's real-time audio API (WebSocket streaming) was considered but **not chosen** because:
 - Requires continuous WebSocket audio streaming
 - Official documentation is unreliable
 - Lack of reference implementations
@@ -70,7 +70,7 @@ We can revisit this approach if Option 1 proves insufficient.
 ### Key Components
 
 - **Speech-to-Text**: OpenAI Whisper API (via HTTP)
-- **Grok Integration**: HTTP POST to Grok API (simple, reliable)
+- **Eliza Integration**: HTTP POST to Eliza API (simple, reliable)
 - **VRChat Output**: Sends responses via OSC to localhost using `~/bin/vrchatbox` (Python script)
 
 ### External Dependencies
@@ -82,8 +82,9 @@ We can revisit this approach if Option 1 proves insufficient.
 
 The application requires:
 - `OPENAI_API_KEY`: For speech-to-text functionality
-- `XAI_API_KEY`: For Grok API access
 - `max_length_of_conversation_history`: Conversation history limit (default: 5)
+
+Note: `XAI_API_KEY` is required by the eliza-agent-server, not by this client application.
 
 ## Build & Run Commands
 
@@ -118,7 +119,7 @@ cargo test
    - Copy `openai.rs` for Whisper API integration
    - No modifications needed
 
-3. **Grok API Module** (new implementation)
+3. **Eliza API Module** (new implementation)
    - Simple HTTP POST client
    - Conversation history management (max_length_of_conversation_history)
    - Error handling and retry logic

@@ -1,15 +1,15 @@
-# talk with Grok
+# Eliza Agent
 
 - Rust native application for Windows11
-- You can talk with Grok by voice, in VRChat
+- You can talk with AI Agent by voice, in VRChat
 
 ## Requirements
 
-### Grok HTTP Server
+### AI Agent HTTP Server
 
-This application requires a local HTTP server to communicate with Grok API. The server is available at:
+This application requires a local HTTP server to communicate with AI Agent API. The server is available at:
 
-**https://github.com/cympfh/grok-http-server**
+**https://github.com/cympfh/eliza-agent-server**
 
 The server provides:
 - Stateless chat API endpoint
@@ -20,11 +20,11 @@ The server provides:
 
 ```bash
 # Clone and setup
-git clone https://github.com/cympfh/grok-http-server
-cd grok-http-server
+git clone https://github.com/cympfh/eliza-agent-server
+cd eliza-agent-server
 uv sync
 
-# Set API key
+# Set API key (in the server)
 export XAI_API_KEY="your-api-key-here"
 
 # Start server (default port: 8000, but you can specify 9096)
