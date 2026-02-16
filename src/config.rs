@@ -131,8 +131,8 @@ impl Config {
         Ok(HotKey::new(Some(modifiers), code))
     }
 
-    /// Get the config file path
-    pub fn config_path() -> Result<PathBuf, String> {
+    /// Get the config directory
+    pub fn config_dir() -> Result<PathBuf, String> {
         let config_dir = dirs::config_dir().ok_or("Failed to get config directory")?;
         let app_config_dir = config_dir.join("talk-with-grok");
 
@@ -141,12 +141,74 @@ impl Config {
                 .map_err(|e| format!("Failed to create config directory: {}", e))?;
         }
 
-        Ok(app_config_dir.join("config.json"))
+        Ok(app_config_dir)
+    }
+
+    /// Get the config file path for a specific preset
+    pub fn config_path_for_preset(preset_name: &str) -> Result<PathBuf, String> {
+        let config_dir = Self::config_dir()?;
+        let filename = match preset_name {
+            "default" => "config.json",
+            "setting1" => "config-1.json",
+            "setting2" => "config-2.json",
+            "setting3" => "config-3.json",
+            "setting4" => "config-4.json",
+            "setting5" => "config-5.json",
+            "setting6" => "config-6.json",
+            "setting7" => "config-7.json",
+            "setting8" => "config-8.json",
+            "setting9" => "config-9.json",
+            _ => return Err(format!("Unknown preset: {}", preset_name)),
+        };
+        Ok(config_dir.join(filename))
+    }
+
+    /// Get the default config file path
+    pub fn config_path() -> Result<PathBuf, String> {
+        Self::config_path_for_preset("default")
+    }
+
+    /// Get list of available presets
+    pub fn list_presets() -> Vec<String> {
+        vec![
+            "default".to_string(),
+            "setting1".to_string(),
+            "setting2".to_string(),
+            "setting3".to_string(),
+            "setting4".to_string(),
+            "setting5".to_string(),
+            "setting6".to_string(),
+            "setting7".to_string(),
+            "setting8".to_string(),
+            "setting9".to_string(),
+        ]
+    }
+
+    /// Get display name for preset
+    pub fn preset_display_name(preset_name: &str) -> String {
+        match preset_name {
+            "default" => "デフォルト設定".to_string(),
+            "setting1" => "設定1".to_string(),
+            "setting2" => "設定2".to_string(),
+            "setting3" => "設定3".to_string(),
+            "setting4" => "設定4".to_string(),
+            "setting5" => "設定5".to_string(),
+            "setting6" => "設定6".to_string(),
+            "setting7" => "設定7".to_string(),
+            "setting8" => "設定8".to_string(),
+            "setting9" => "設定9".to_string(),
+            _ => preset_name.to_string(),
+        }
     }
 
     /// Load config from file
     pub fn load() -> Self {
-        match Self::config_path() {
+        Self::load_preset("default")
+    }
+
+    /// Load config from a specific preset
+    pub fn load_preset(preset_name: &str) -> Self {
+        match Self::config_path_for_preset(preset_name) {
             Ok(path) => {
                 if path.exists() {
                     match fs::read_to_string(&path) {
@@ -163,6 +225,8 @@ impl Config {
                             eprintln!("Failed to read config file: {}", e);
                         }
                     }
+                } else {
+                    println!("Config file not found: {:?}, using default", path);
                 }
             }
             Err(e) => {
@@ -170,13 +234,18 @@ impl Config {
             }
         }
 
-        println!("Using default config");
+        println!("Using default config for preset: {}", preset_name);
         Self::default()
     }
 
     /// Save config to file
     pub fn save(&self) -> Result<(), String> {
-        let path = Self::config_path()?;
+        self.save_preset("default")
+    }
+
+    /// Save config to a specific preset
+    pub fn save_preset(&self, preset_name: &str) -> Result<(), String> {
+        let path = Self::config_path_for_preset(preset_name)?;
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
         fs::write(&path, json).map_err(|e| format!("Failed to write config file: {}", e))?;

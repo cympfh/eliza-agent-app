@@ -79,6 +79,7 @@ enum ProcessingMessage {
 struct TalkWithGrokApp {
     state: AppState,
     config: Config,
+    current_preset: String,
     status_message: String,
     recording_info: String,
 
@@ -151,6 +152,7 @@ impl TalkWithGrokApp {
 
         Self {
             state: AppState::Idle,
+            current_preset: "default".to_string(),
             status_message: "Ready. Press Start to begin monitoring.".to_string(),
             recording_info: String::new(),
             audio_recorder: None,
@@ -231,6 +233,47 @@ impl TalkWithGrokApp {
         self.state = AppState::Idle;
         self.status_message = "Stopped.".to_string();
         self.recording_info.clear();
+    }
+
+    fn switch_preset(&mut self, preset_name: &str) {
+        println!("Switching to preset: {}", preset_name);
+
+        // Stop monitoring if active
+        if self.state != AppState::Idle {
+            self.stop_monitoring();
+        }
+
+        // Load new config
+        self.config = Config::load_preset(preset_name);
+        self.current_preset = preset_name.to_string();
+
+        // Update settings UI
+        self.settings_openai_key = self.config.openai_api_key.clone();
+        self.settings_grok_http_server_url = self.config.grok_http_server_url.clone();
+        self.settings_start_threshold = self.config.start_threshold;
+        self.settings_silence_threshold = self.config.silence_threshold;
+        self.settings_silence_duration = self.config.silence_duration_secs;
+        self.settings_whisper_model = self.config.whisper_model.clone();
+        self.settings_custom_prompt = self.config.custom_prompt.clone();
+        self.settings_grok_model = self.config.grok_model.clone();
+        self.settings_max_history = self.config.max_length_of_conversation_history;
+        self.settings_system_prompt = self.config.system_prompt.clone();
+
+        // Update device selection
+        self.selected_device_index = if let Some(ref device_name) = self.config.input_device_name {
+            self.available_devices
+                .iter()
+                .position(|d| d == device_name)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        // Clear GrokClient to force re-initialization
+        self.grok_client = None;
+        self.conversation_history.clear();
+
+        self.status_message = format!("Switched to {}", Config::preset_display_name(preset_name));
     }
 
     fn start_recording(&mut self) {
@@ -532,8 +575,12 @@ impl eframe::App for TalkWithGrokApp {
                                 .get(self.selected_device_index)
                                 .cloned();
 
-                            match self.config.save() {
-                                Ok(_) => self.status_message = "Settings saved!".to_string(),
+                            // Save to current preset
+                            match self.config.save_preset(&self.current_preset) {
+                                Ok(_) => self.status_message = format!(
+                                    "Settings saved to {}!",
+                                    Config::preset_display_name(&self.current_preset)
+                                ),
                                 Err(e) => self.status_message = format!("Failed to save: {}", e),
                             }
                             self.show_settings = false;
@@ -582,6 +629,24 @@ impl eframe::App for TalkWithGrokApp {
                             self.show_settings = true;
                         }
                     });
+                });
+
+                ui.add_space(5.0);
+
+                // Preset selector
+                ui.horizontal(|ui| {
+                    ui.label("設定:");
+                    let current_display = Config::preset_display_name(&self.current_preset);
+                    egui::ComboBox::from_id_salt("preset_selector")
+                        .selected_text(&current_display)
+                        .show_ui(ui, |ui| {
+                            for preset in Config::list_presets() {
+                                let display_name = Config::preset_display_name(&preset);
+                                if ui.selectable_value(&mut self.current_preset, preset.clone(), &display_name).clicked() {
+                                    self.switch_preset(&preset);
+                                }
+                            }
+                        });
                 });
 
                 ui.add_space(10.0);
