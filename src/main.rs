@@ -77,7 +77,7 @@ enum ProcessingMessage {
     Error(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum VoiceCommand {
     StartListening,
     StopListening,
@@ -408,15 +408,9 @@ fn process_pipeline(
     };
 
     // If not listening, skip Eliza processing
-    if !is_listening {
-        // Send command detection message if detected
-        if let Some(command) = detected_command {
-            let _ = sender.send(ProcessingMessage::VoiceCommandDetected(command, eliza_client));
-            return None;
-        } else {
-            let _ = sender.send(ProcessingMessage::Complete(eliza_client));
-            return None;
-        }
+    if !is_listening && detected_command.is_none() {
+        let _ = sender.send(ProcessingMessage::Complete(eliza_client));
+        return None;
     }
 
     // Step 1.5: Send transcribed text to VRChat (as quote)
@@ -771,7 +765,7 @@ impl eframe::App for ElizaAgentApp {
                     "🔴 待機中 (コマンド待ち)"
                 };
                 let listening_color = if self.is_listening {
-                    egui::Color32::LIGHT_GREEN
+                    egui::Color32::from_rgb(0, 128, 0) // Dark green
                 } else {
                     egui::Color32::LIGHT_RED
                 };
@@ -781,9 +775,9 @@ impl eframe::App for ElizaAgentApp {
                 // Status
                 let status_color = match self.state {
                     AppState::Idle => egui::Color32::GRAY,
-                    AppState::Monitoring => egui::Color32::GREEN,
+                    AppState::Monitoring => egui::Color32::from_rgb(0, 128, 0), // Dark green
                     AppState::Recording => egui::Color32::RED,
-                    AppState::Processing => egui::Color32::YELLOW,
+                    AppState::Processing => egui::Color32::from_rgb(200, 100, 0), // Dark orange
                 };
                 ui.colored_label(status_color, &self.status_message);
 
@@ -793,24 +787,23 @@ impl eframe::App for ElizaAgentApp {
 
                 ui.add_space(20.0);
 
-                // Start/Stop button
-                let button_text = match self.state {
-                    AppState::Idle => "▶ Start Monitoring",
-                    AppState::Monitoring => "⏹ Stop",
-                    AppState::Recording => "⏺ Recording...",
-                    AppState::Processing => "⏳ Processing...",
+                // Start/Stop button (always show either Start or Stop)
+                let (button_text, is_stop_button) = match self.state {
+                    AppState::Idle => ("▶ Start Monitoring", false),
+                    AppState::Monitoring => ("⏹ Stop", true),
+                    AppState::Recording => ("⏹ Stop", true),
+                    AppState::Processing => ("⏹ Stop", true),
                 };
 
-                let button_enabled = self.state == AppState::Idle || self.state == AppState::Monitoring;
-
+                // Stop button is always enabled
                 if ui
-                    .add_enabled(button_enabled, egui::Button::new(button_text).min_size(egui::vec2(300.0, 60.0)))
+                    .add(egui::Button::new(button_text).min_size(egui::vec2(300.0, 60.0)))
                     .clicked()
                 {
-                    match self.state {
-                        AppState::Idle => self.start_monitoring(),
-                        AppState::Monitoring => self.stop_monitoring(),
-                        _ => {}
+                    if is_stop_button {
+                        self.stop_monitoring();
+                    } else {
+                        self.start_monitoring();
                     }
                 }
 
@@ -841,7 +834,7 @@ impl eframe::App for ElizaAgentApp {
                                 let color = if role == "You" {
                                     egui::Color32::LIGHT_BLUE
                                 } else {
-                                    egui::Color32::LIGHT_GREEN
+                                    egui::Color32::from_rgb(0, 128, 0) // Dark green
                                 };
                                 ui.colored_label(color, format!("{}:", role));
                             });
