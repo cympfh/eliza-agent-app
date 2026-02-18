@@ -829,6 +829,10 @@ impl eframe::App for ElizaAgentApp {
                         if ui.button("🗑 Clear History").clicked() {
                             self.conversation_history.clear();
                             if let Some(ref mut eliza_client) = self.eliza_client {
+                                // Save memory before clearing
+                                if let Err(e) = eliza_client.save_memory() {
+                                    eprintln!("Failed to save memory on clear: {}", e);
+                                }
                                 eliza_client.clear_history();
                                 println!("Conversation history cleared");
                                 self.status_message = "Conversation history cleared".to_string();
@@ -869,5 +873,14 @@ impl eframe::App for ElizaAgentApp {
 
         // Keep updating
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        println!("App exiting, saving memory...");
+        if let Some(ref eliza_client) = self.eliza_client {
+            if let Err(e) = eliza_client.save_memory() {
+                eprintln!("Failed to save memory on exit: {}", e);
+            }
+        }
     }
 }

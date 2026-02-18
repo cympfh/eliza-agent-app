@@ -133,10 +133,62 @@ impl ElizaClient {
     fn add_message(&mut self, role: String, content: String) {
         self.conversation_history.push_back(Message { role, content });
 
-        // Keep only the last max_history_length messages
-        while self.conversation_history.len() > self.max_history_length {
-            self.conversation_history.pop_front();
+        // Save memory and compact history if it exceeds max length
+        if self.conversation_history.len() > self.max_history_length {
+            const COMPACT_SIZE: usize = 5;
+            if let Err(e) = self.save_memory() {
+                eprintln!("Failed to save memory (max length reached): {}", e);
+            }
+            while self.conversation_history.len() > COMPACT_SIZE {
+                self.conversation_history.pop_front();
+            }
         }
+    }
+
+    /// Save conversation history to /memory endpoint
+    pub fn save_memory(&self) -> Result<(), ElizaError> {
+        if self.conversation_history.is_empty() {
+            return Ok(());
+        }
+
+        let mut messages: Vec<Message> = vec![Message {
+            role: "system".to_string(),
+            content: self.system_prompt.clone(),
+        }];
+        messages.extend(self.conversation_history.iter().cloned());
+
+        let request = ChatRequest {
+            model: self.model.clone(),
+            messages,
+            stream: false,
+            temperature: 0.0,
+        };
+
+        let url = format!(
+            "{}/memory",
+            self.server_url.trim_end_matches("/chat")
+        );
+
+        println!("Saving memory to: {}", url);
+        let client = reqwest::blocking::Client::new();
+        let response = client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .map_err(|e| ElizaError::NetworkError(format!("Failed to save memory: {}", e)))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().unwrap_or_default();
+            return Err(ElizaError::ApiError(format!(
+                "Memory API returned status {}: {}",
+                status, body
+            )));
+        }
+
+        println!("Memory saved successfully");
+        Ok(())
     }
 
     /// Clear conversation history
