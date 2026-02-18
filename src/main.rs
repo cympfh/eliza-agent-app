@@ -845,6 +845,7 @@ impl eframe::App for ElizaAgentApp {
                 egui::ScrollArea::vertical()
                     .max_height(300.0)
                     .auto_shrink([false, false])
+                    .stick_to_bottom(true)
                     .show(ui, |ui| {
                         for (role, message) in &self.conversation_history {
                             ui.horizontal(|ui| {
