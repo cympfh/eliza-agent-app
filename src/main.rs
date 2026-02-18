@@ -74,7 +74,7 @@ enum ProcessingMessage {
     ElizaInProgress,
     ElizaComplete(String),
     Complete(Option<ElizaClient>), // Processing complete, return ElizaClient
-    Error(String),
+    Error(String, Option<ElizaClient>), // Error with ElizaClient (to preserve history)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -386,11 +386,11 @@ fn process_pipeline(
     let transcribed_text = match openai_client.transcribe_audio(&audio_path) {
         Ok(text) => text,
         Err(e) => {
-            let _ = sender.send(ProcessingMessage::Error(format!(
-                "Transcription failed: {}",
-                e
-            )));
-            return eliza_client;
+            let _ = sender.send(ProcessingMessage::Error(
+                format!("Transcription failed: {}", e),
+                eliza_client,
+            ));
+            return None;
         }
     };
 
@@ -431,7 +431,10 @@ fn process_pipeline(
     let _ = sender.send(ProcessingMessage::ElizaInProgress);
 
     if eliza_client.is_none() {
-        let _ = sender.send(ProcessingMessage::Error("Eliza client not initialized".to_string()));
+        let _ = sender.send(ProcessingMessage::Error(
+            "Eliza client not initialized".to_string(),
+            None,
+        ));
         return None;
     }
 
@@ -439,8 +442,11 @@ fn process_pipeline(
     let eliza_response = match client.send_message(&transcribed_text) {
         Ok(response) => response,
         Err(e) => {
-            let _ = sender.send(ProcessingMessage::Error(format!("Eliza failed: {}", e)));
-            return Some(client);
+            let _ = sender.send(ProcessingMessage::Error(
+                format!("Eliza failed: {}", e),
+                Some(client),
+            ));
+            return None;
         }
     };
 
@@ -459,8 +465,11 @@ fn process_pipeline(
         }
         Err(e) => {
             eprintln!("✗ VRChat send failed: {}", e);
-            let _ = sender.send(ProcessingMessage::Error(format!("VRChat failed: {}", e)));
-            return Some(client);
+            let _ = sender.send(ProcessingMessage::Error(
+                format!("VRChat failed: {}", e),
+                Some(client),
+            ));
+            return None;
         }
     }
 
@@ -540,9 +549,13 @@ impl eframe::App for ElizaAgentApp {
                         self.eliza_client = eliza_client;
                         self.start_monitoring();
                     }
-                    ProcessingMessage::Error(error) => {
+                    ProcessingMessage::Error(error, eliza_client) => {
                         self.status_message = format!("❌ Error: {}", error);
                         self.processing_receiver = None;
+                        // Restore ElizaClient to preserve conversation history
+                        if eliza_client.is_some() {
+                            self.eliza_client = eliza_client;
+                        }
                         self.start_monitoring();
                     }
                 }
