@@ -1,39 +1,63 @@
 # Eliza Agent
 
-- Rust native application for Windows11
-- You can talk with AI Agent by voice, in VRChat
+VRChat でAIと声で話せる、Windows 用のデスクトップアプリです。
 
-## Requirements
+## できること
 
-### AI Agent HTTP Server
+**マイクに向かって話しかけるだけ。**
+音声を自動で認識して、AIエージェントに送り、返答を VRChat のチャットボックスに自動で表示します。
 
-This application requires a local HTTP server to communicate with AI Agent API. The server is available at:
+しゃべりかけるだけで、VRChatの画面から目を離さずにAIと会話できます。
 
-**https://github.com/cympfh/eliza-agent-server**
+### 自動で録音を開始・終了する
 
-The server provides:
-- Stateless chat API endpoint
-- Built-in x_search (X/Twitter search) and web_search tools
-- Default port: 9096 (configurable)
+しゃべり始めると自動で録音が始まり、黙ると自動で止まります。
+ボタンを押すタイミングを気にしなくていいので、会話に集中できます。
 
-#### Starting the server:
+### VRChat のミュートに連動する
 
-```bash
-# Clone and setup
-git clone https://github.com/cympfh/eliza-agent-server
-cd eliza-agent-server
-uv sync
+VRChat でミュートにすると自動で録音を開始し、ミュートを解除すると録音を止めます。
+「ミュート＝AIに話しかける」という自然なフローで使えます。
 
-# Set API key (in the server)
-export XAI_API_KEY="your-api-key-here"
+### 音量の閾値を自動でキャリブレーションする
 
-# Start server (default port: 8000, but you can specify 9096)
-python server.py --port 9096
-```
+使いはじめや環境が変わったとき、ワンクリックで適切な音量閾値を自動設定できます。
+「静かにする2秒」→「しゃべる2秒」の手順に従うだけで完了します。
 
-#### Configuration
+### 複数の設定を切り替えられる
 
-The server URL can be configured in the application's Settings:
-- Default: `http://localhost:9096`
-- Customizable to any host/port
+用途やキャラクターごとに設定（システムプロンプト・AIモデルなど）を保存しておき、
+プリセットとして切り替えられます。デフォルト設定のほか、設定1〜9まで保存できます。
 
+---
+
+## セットアップ
+
+### 1. Eliza Agent Server を起動する
+
+このアプリは、ローカルで動く AIエージェントサーバーと通信します。
+
+→ **https://github.com/cympfh/eliza-agent-server**
+
+サーバーを起動したら、このアプリの Settings から接続先 URL を設定してください（デフォルト: `http://localhost:9096`）。
+
+### 2. OpenAI API キーを設定する
+
+音声認識に OpenAI Whisper を使っています。
+Settings から `OpenAI API Key` を入力してください。
+
+### 3. VRChat の OSC を有効にする
+
+VRChat のメニューから OSC を有効にしてください。
+有効にすることで、チャットボックスへの自動送信とミュート連動が機能します。
+
+---
+
+## 使い方
+
+1. アプリを起動する
+2. **▶ Start Monitoring** を押す
+3. マイクに向かって話す
+4. VRChat のチャットボックスにAIの返答が表示される
+
+ミュート連動オプションを有効にしていれば、Start ボタンを押さなくても、VRChat でミュートするだけで自動で起動します。
