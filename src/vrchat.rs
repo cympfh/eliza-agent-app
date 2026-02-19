@@ -1,6 +1,8 @@
+use rosc::decoder;
 use rosc::encoder;
 use rosc::{OscMessage, OscPacket, OscType};
 use std::net::UdpSocket;
+use std::sync::mpsc::Sender;
 
 #[derive(Debug)]
 pub enum VRChatError {
@@ -96,6 +98,60 @@ impl Default for VRChatClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// VRChat からの OSC パラメータを受信するリスナー
+/// 9001 ポートで Listen し、/avatar/parameters/MuteSelf を監視する
+pub fn start_mute_listener(sender: Sender<bool>) {
+    std::thread::spawn(move || {
+        let socket = match UdpSocket::bind("0.0.0.0:9001") {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[VRChat OSC Listener] Failed to bind port 9001: {}", e);
+                return;
+            }
+        };
+        socket.set_read_timeout(Some(std::time::Duration::from_millis(500))).ok();
+        println!("[VRChat OSC Listener] Listening on port 9001 for MuteSelf parameter");
+
+        let mut buf = [0u8; 65535];
+        loop {
+            match socket.recv_from(&mut buf) {
+                Ok((size, _addr)) => {
+                    match decoder::decode_udp(&buf[..size]) {
+                        Ok((_, OscPacket::Message(msg))) => {
+                            if msg.addr == "/avatar/parameters/MuteSelf" {
+                                let is_muted = match msg.args.first() {
+                                    Some(OscType::Bool(b)) => *b,
+                                    Some(OscType::Int(i)) => *i != 0,
+                                    Some(OscType::Float(f)) => *f != 0.0,
+                                    _ => continue,
+                                };
+                                println!("[VRChat OSC Listener] MuteSelf={}", is_muted);
+                                if sender.send(is_muted).is_err() {
+                                    // チャンネルが閉じられた → 終了
+                                    break;
+                                }
+                            }
+                        }
+                        Ok((_, OscPacket::Bundle(_))) => {}
+                        Err(_) => {}
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    // タイムアウトは正常 → チャンネルが生きているか確認
+                    // send のみでチェックできないので、ループ継続
+                }
+                Err(e) => {
+                    eprintln!("[VRChat OSC Listener] recv error: {}", e);
+                    break;
+                }
+            }
+        }
+        println!("[VRChat OSC Listener] Stopped");
+    });
 }
 
 #[cfg(test)]

@@ -1,49 +1,28 @@
 @CLAUDE
 
-See README.md and below
+これはあなたにお願いしたい事項の管理シートです。
+完了したら, 見出しの後ろに [☑ YYYY-MM-DD] を追加してください。
 
-## Architecture
+1. [☑ 2026-02-19] is_listening という状態管理を無くす。
+従って phrase に関する設定や match 処理も削除する。
+ボタンによる start_monitoring, stop_monitoring だけを残す。
 
-```
-Windows mic -> [Text-to-Speech] -> AI Agent -> [VRChat (via OSC)]
-```
+2. [☑ 2026-02-19] オプションに "VRChat のミュート状態を使う" を追加する。
+これは、VRChat のミュート状態を監視して、ミュート状態なら start_monitoring する、
+ミュート解除なら stop_monitoring する機能。
+ボタンをクリックしなくて済むようになるオプション。
 
-### References
+調査結果:
+OSC 9001 ポートを Listen し、/avatar/parameters/MuteSelf (bool) を受信する。
+MuteSelf=true → ミュート中 → start_monitoring
+MuteSelf=false → ミュート解除 → stop_monitoring
 
-mic to Text-to-Speech: ~/git/winh/src/ (this is written in Rust as native application for Windows11)
+3. 「適切な音量閾値を自動で設定する」機能を追加する。
 
-VRChat via OSC: ~/bin/vrchatbox (this is written in Python)
-this is windows native application, so OSC is sent to localhost.
+「2秒間の無音」と「2秒以上喋ってもらう」を録音することで、
+適切な音量閾値を自動で設定する機能。
+無音の最大値と、喋ってもらう平均をそれぞれ閾値にする。
 
-### UI
+4. hotkey の設定は使ったことない。削除。
 
-**Settings**
-
-OPENAI_API_KEY for Text-to-Speech
-max_length_of_conversation_history (for AI Agent, default=5)
-
-Note: XAI_API_KEY is configured on the server side (eliza-agent-server), not in this client.
-
-**Start to talk with AI Agent**
-websocket connection to AI Agent is established.
-
-**Stop talking with AI Agent**
-websocket connection to AI Agent is closed.
-
-**model for Text-to-Speech**
-
-**model for AI Agent**
-
-## logging
-
-セッションごとにログファイルを作成して、会話の履歴やエラー情報を記録する。
-
-~/.eliza-agent/logs/session_YYYYMMDD_HHMMSS.log
-
-```
-{"type": "conversation", "timestamp": "2024-06-01T12:00:00Z", "message": "Hello", "source": "user"}
-{"type": "conversation", "timestamp": "2024-06-01T12:00:05Z", "message": "Hi there! How can I assist you today?", "source": "eliza"}
-{"type": "error", "timestamp": "2024-06-01T12:01:00Z", "message": "connection lost"}
-```
-
-
+5. Refactoring: fire all warnings (NOTE: You can compile this by GNU make (make build-windows))

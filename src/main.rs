@@ -15,7 +15,7 @@ use eliza::ElizaClient;
 use openai::OpenAIClient;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use vrchat::VRChatClient;
+use vrchat::{VRChatClient, start_mute_listener};
 
 fn main() -> eframe::Result<()> {
     // Load config
@@ -70,17 +70,10 @@ enum AppState {
 enum ProcessingMessage {
     TranscriptionInProgress,
     TranscriptionComplete(String),
-    VoiceCommandDetected(VoiceCommand, Option<ElizaClient>), // Voice command detected, with ElizaClient
     ElizaInProgress,
     ElizaComplete(String),
     Complete(Option<ElizaClient>), // Processing complete, return ElizaClient
     Error(String, Option<ElizaClient>), // Error with ElizaClient (to preserve history)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum VoiceCommand {
-    StartListening,
-    StopListening,
 }
 
 struct ElizaAgentApp {
@@ -100,8 +93,8 @@ struct ElizaAgentApp {
     // Background processing
     processing_receiver: Option<Receiver<ProcessingMessage>>,
 
-    // Voice command state
-    is_listening: bool, // Whether agent is actively listening and responding
+    // VRChat mute state detection
+    mute_receiver: Option<Receiver<bool>>,
 
     // VAD: 単発ノイズスパイクで誤検出しないよう連続カウント
     voice_detection_count: u32,
@@ -118,8 +111,7 @@ struct ElizaAgentApp {
     settings_agent_model: String,
     settings_max_history: usize,
     settings_system_prompt: String,
-    settings_start_command_phrases: String,
-    settings_stop_command_phrases: String,
+    settings_use_vrchat_mute_detection: bool,
 
     // Device management
     available_devices: Vec<String>,
@@ -165,6 +157,15 @@ impl ElizaAgentApp {
             println!("Global hotkey registered: {}", config.hotkey);
         }
 
+        // Start VRChat mute listener if enabled
+        let mute_receiver = if config.use_vrchat_mute_detection {
+            let (tx, rx) = channel::<bool>();
+            start_mute_listener(tx);
+            Some(rx)
+        } else {
+            None
+        };
+
         Self {
             state: AppState::Idle,
             current_preset: "default".to_string(),
@@ -174,7 +175,7 @@ impl ElizaAgentApp {
             audio_file_path: None,
             eliza_client: None,
             processing_receiver: None,
-            is_listening: false, // Start with listening disabled
+            mute_receiver,
             voice_detection_count: 0,
             show_settings: false,
             settings_openai_key: config.openai_api_key.clone(),
@@ -187,8 +188,7 @@ impl ElizaAgentApp {
             settings_agent_model: config.agent_model.clone(),
             settings_max_history: config.max_length_of_conversation_history,
             settings_system_prompt: config.system_prompt.clone(),
-            settings_start_command_phrases: config.start_command_phrases.clone(),
-            settings_stop_command_phrases: config.stop_command_phrases.clone(),
+            settings_use_vrchat_mute_detection: config.use_vrchat_mute_detection,
             available_devices,
             selected_device_index,
             hotkey_manager,
@@ -202,12 +202,7 @@ impl ElizaAgentApp {
     fn start_monitoring(&mut self) {
         println!("Starting monitoring mode");
         self.state = AppState::Monitoring;
-        let listening_status = if self.is_listening {
-            "🟢 聞き取り中"
-        } else {
-            "🔴 待機中"
-        };
-        self.status_message = format!("Monitoring... {} Speak to start recording.", listening_status);
+        self.status_message = "Monitoring... Speak to start recording.".to_string();
 
         // Initialize ElizaClient only if not already initialized
         if self.eliza_client.is_none() && !self.config.agent_server_url.is_empty() {
@@ -283,8 +278,19 @@ impl ElizaAgentApp {
         self.settings_agent_model = self.config.agent_model.clone();
         self.settings_max_history = self.config.max_length_of_conversation_history;
         self.settings_system_prompt = self.config.system_prompt.clone();
+        self.settings_use_vrchat_mute_detection = self.config.use_vrchat_mute_detection;
+
+        // Restart mute listener for new preset
+        if self.config.use_vrchat_mute_detection {
+            let (tx, rx) = channel::<bool>();
+            start_mute_listener(tx);
+            self.mute_receiver = Some(rx);
+        } else {
+            self.mute_receiver = None;
+        }
 
         // Update device selection
+
         self.selected_device_index = if let Some(ref device_name) = self.config.input_device_name {
             self.available_devices
                 .iter()
@@ -297,13 +303,6 @@ impl ElizaAgentApp {
         // Clear ElizaClient to force re-initialization
         self.eliza_client = None;
         self.conversation_history.clear();
-
-        // Update voice command settings
-        self.settings_start_command_phrases = self.config.start_command_phrases.clone();
-        self.settings_stop_command_phrases = self.config.stop_command_phrases.clone();
-
-        // Reset listening state
-        self.is_listening = false;
 
         self.status_message = format!("Switched to {}", Config::preset_display_name(preset_name));
     }
@@ -354,10 +353,6 @@ impl ElizaAgentApp {
         // Take ownership of eliza_client to use in the thread
         let eliza_client = self.eliza_client.take();
 
-        // Pass voice command check config
-        let config_for_commands = self.config.clone();
-        let is_listening = self.is_listening;
-
         std::thread::spawn(move || {
             let _returned_client = process_pipeline(
                 audio_path,
@@ -366,8 +361,6 @@ impl ElizaAgentApp {
                 custom_prompt,
                 eliza_client,
                 sender,
-                config_for_commands,
-                is_listening,
             );
             // ElizaClient is returned via ProcessingMessage::Complete
         });
@@ -381,10 +374,8 @@ fn process_pipeline(
     custom_prompt: String,
     eliza_client: Option<ElizaClient>,
     sender: Sender<ProcessingMessage>,
-    config: Config,
-    is_listening: bool,
 ) -> Option<ElizaClient> {
-    // Step 1: Transcribe (always execute to detect voice commands)
+    // Step 1: Transcribe
     let _ = sender.send(ProcessingMessage::TranscriptionInProgress);
 
     let openai_client = OpenAIClient::new(openai_key, whisper_model, custom_prompt);
@@ -402,21 +393,6 @@ fn process_pipeline(
     let _ = sender.send(ProcessingMessage::TranscriptionComplete(
         transcribed_text.clone(),
     ));
-
-    // Check for voice commands (but continue pipeline execution)
-    let detected_command = if config.matches_start_command(&transcribed_text) {
-        Some(VoiceCommand::StartListening)
-    } else if config.matches_stop_command(&transcribed_text) {
-        Some(VoiceCommand::StopListening)
-    } else {
-        None
-    };
-
-    // If not listening, skip Eliza processing
-    if !is_listening && detected_command.is_none() {
-        let _ = sender.send(ProcessingMessage::Complete(eliza_client));
-        return None;
-    }
 
     // Step 1.5: Send transcribed text to VRChat (as quote)
     println!("===== VRChat Sending (Transcription) =====");
@@ -478,14 +454,8 @@ fn process_pipeline(
         }
     }
 
-    // Send command detection message if detected, otherwise send Complete
-    if let Some(command) = detected_command {
-        let _ = sender.send(ProcessingMessage::VoiceCommandDetected(command, Some(client)));
-        None
-    } else {
-        let _ = sender.send(ProcessingMessage::Complete(Some(client)));
-        None
-    }
+    let _ = sender.send(ProcessingMessage::Complete(Some(client)));
+    None
 }
 
 impl eframe::App for ElizaAgentApp {
@@ -511,28 +481,8 @@ impl eframe::App for ElizaAgentApp {
                     }
                     ProcessingMessage::TranscriptionComplete(text) => {
                         self.status_message = format!("Transcribed: {}", text);
-                        if self.is_listening {
-                            self.conversation_history
-                                .push(("You".to_string(), text.clone()));
-                        }
-                    }
-                    ProcessingMessage::VoiceCommandDetected(command, eliza_client) => {
-                        match command {
-                            VoiceCommand::StartListening => {
-                                self.is_listening = true;
-                                self.status_message = "🟢 聞き取り開始！".to_string();
-                                println!("Voice command: Start listening");
-                            }
-                            VoiceCommand::StopListening => {
-                                self.is_listening = false;
-                                self.status_message = "🔴 聞き取り終了".to_string();
-                                println!("Voice command: Stop listening");
-                            }
-                        }
-                        self.processing_receiver = None;
-                        // Restore the eliza_client for next use
-                        self.eliza_client = eliza_client;
-                        self.start_monitoring();
+                        self.conversation_history
+                            .push(("You".to_string(), text.clone()));
                     }
                     ProcessingMessage::ElizaInProgress => {
                         self.status_message = "Asking Eliza...".to_string();
@@ -543,12 +493,7 @@ impl eframe::App for ElizaAgentApp {
                             .push(("Agent".to_string(), response.clone()));
                     }
                     ProcessingMessage::Complete(eliza_client) => {
-                        let msg = if self.is_listening {
-                            "Sent to VRChat! Ready for next input."
-                        } else {
-                            "Transcription complete. Waiting for start command."
-                        };
-                        self.status_message = msg.to_string();
+                        self.status_message = "Sent to VRChat! Ready for next input.".to_string();
                         self.processing_receiver = None;
                         // Restore the eliza_client for next use
                         self.eliza_client = eliza_client;
@@ -562,6 +507,28 @@ impl eframe::App for ElizaAgentApp {
                             self.eliza_client = eliza_client;
                         }
                         self.start_monitoring();
+                    }
+                }
+            }
+        }
+
+        // VRChat mute state detection
+        if self.config.use_vrchat_mute_detection {
+            if let Some(ref rx) = self.mute_receiver {
+                // drain all pending messages, keep only the last
+                let mut last_muted = None;
+                while let Ok(is_muted) = rx.try_recv() {
+                    last_muted = Some(is_muted);
+                }
+                if let Some(is_muted) = last_muted {
+                    // MuteSelf=true → ミュート中 → start_monitoring
+                    // MuteSelf=false → ミュート解除 → stop_monitoring
+                    if is_muted && self.state == AppState::Idle {
+                        println!("VRChat muted → start monitoring");
+                        self.start_monitoring();
+                    } else if !is_muted && self.state != AppState::Idle {
+                        println!("VRChat unmuted → stop monitoring");
+                        self.stop_monitoring();
                     }
                 }
             }
@@ -655,12 +622,8 @@ impl eframe::App for ElizaAgentApp {
                         ui.add(egui::TextEdit::multiline(&mut self.settings_system_prompt).desired_rows(5));
                         ui.add_space(10.0);
 
-                        ui.label("Start Command Phrases (separated by |):");
-                        ui.text_edit_singleline(&mut self.settings_start_command_phrases);
-                        ui.add_space(5.0);
-
-                        ui.label("Stop Command Phrases (separated by |):");
-                        ui.text_edit_singleline(&mut self.settings_stop_command_phrases);
+                        ui.checkbox(&mut self.settings_use_vrchat_mute_detection, "VRChat のミュート状態を使う");
+                        ui.label("  ミュート解除で録音開始、ミュートで録音停止 (OSC 9001ポート)");
                         ui.add_space(10.0);
 
                         ui.label("Input Device:");
@@ -696,8 +659,19 @@ impl eframe::App for ElizaAgentApp {
                             self.config.agent_model = self.settings_agent_model.clone();
                             self.config.max_length_of_conversation_history = self.settings_max_history;
                             self.config.system_prompt = self.settings_system_prompt.clone();
-                            self.config.start_command_phrases = self.settings_start_command_phrases.clone();
-                            self.config.stop_command_phrases = self.settings_stop_command_phrases.clone();
+
+                            // Apply mute detection setting (restart listener if changed)
+                            let mute_changed = self.config.use_vrchat_mute_detection != self.settings_use_vrchat_mute_detection;
+                            self.config.use_vrchat_mute_detection = self.settings_use_vrchat_mute_detection;
+                            if mute_changed {
+                                if self.config.use_vrchat_mute_detection {
+                                    let (tx, rx) = channel::<bool>();
+                                    start_mute_listener(tx);
+                                    self.mute_receiver = Some(rx);
+                                } else {
+                                    self.mute_receiver = None;
+                                }
+                            }
 
                             // Save selected input device
                             self.config.input_device_name = self
@@ -728,8 +702,7 @@ impl eframe::App for ElizaAgentApp {
                             self.settings_agent_model = self.config.agent_model.clone();
                             self.settings_max_history = self.config.max_length_of_conversation_history;
                             self.settings_system_prompt = self.config.system_prompt.clone();
-                            self.settings_start_command_phrases = self.config.start_command_phrases.clone();
-                            self.settings_stop_command_phrases = self.config.stop_command_phrases.clone();
+                            self.settings_use_vrchat_mute_detection = self.config.use_vrchat_mute_detection;
 
                             // Restore device index
                             self.selected_device_index =
@@ -782,20 +755,6 @@ impl eframe::App for ElizaAgentApp {
                 });
 
                 ui.add_space(10.0);
-
-                // Listening state indicator
-                let listening_text = if self.is_listening {
-                    "🟢 聞き取り中 (会話モード)"
-                } else {
-                    "🔴 待機中 (コマンド待ち)"
-                };
-                let listening_color = if self.is_listening {
-                    egui::Color32::from_rgb(0, 128, 0) // Dark green
-                } else {
-                    egui::Color32::LIGHT_RED
-                };
-                ui.colored_label(listening_color, listening_text);
-                ui.add_space(5.0);
 
                 // Status
                 let status_color = match self.state {

@@ -29,23 +29,17 @@ pub struct Config {
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
 
-    // Voice command settings
-    #[serde(default = "default_start_command_phrases")]
-    pub start_command_phrases: String,
-    #[serde(default = "default_stop_command_phrases")]
-    pub stop_command_phrases: String,
+    // VRChat mute detection
+    #[serde(default = "default_true")]
+    pub use_vrchat_mute_detection: bool,
 }
 
 fn default_hotkey() -> String {
     "Ctrl+Shift+G".to_string()
 }
 
-fn default_start_command_phrases() -> String {
-    "聞き取り開始|聞き取りスタート|ヘイグーグル|こんにちは|こんにちわ|こんこん|こんばんわ|こんばんは".to_string()
-}
-
-fn default_stop_command_phrases() -> String {
-    "聞き取り終了|聞き取りストップ|ストップ|おやすみ|さよなら|さようなら|バイバイ".to_string()
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -63,49 +57,12 @@ impl Default for Config {
             system_prompt: "あなたはユーザーと楽しく会話し、web検索をしたり、Switchbot API で家のエアコンや灯りを操作する手伝いをする為のエージェントです。 -- 以下は、あなたとユーザーの会話履歴です。ユーザーの発言は元は音声であり、内部的にテキスト化されたものです。ユーザーの発言は、音声認識の誤りや、文法的な不完全さを含む可能性があります。あなたは、ユーザーの発言はあたかも音声であるかのように理解し、ユーザーの意図を汲み取る必要があります。 -- 返答は20文字程度の短文である必要があります -- 言語：日本語 -- 名前：（秘密だが、委員長とだけ呼ばれてる） -- 人格モデル：月ノ美兎 -- 職業：学級委員長 -- 口調：一人称は必ず「わたくし」、基本は丁寧なですます調で話す（「ですわ」じゃなくて普通の丁寧語ね！）テンション上がると早口".to_string(),
             input_device_name: None,
             hotkey: default_hotkey(),
-            start_command_phrases: default_start_command_phrases(),
-            stop_command_phrases: default_stop_command_phrases(),
+            use_vrchat_mute_detection: true,
         }
     }
 }
 
 impl Config {
-    /// Check if text matches start command phrases
-    pub fn matches_start_command(&self, text: &str) -> bool {
-        let chars_to_remove = "。、！？.,!? 　\r\n";
-        let normalized: String = text.to_lowercase()
-            .chars()
-            .filter(|c| !chars_to_remove.contains(*c))
-            .collect();
-        self.start_command_phrases
-            .split('|')
-            .any(|phrase| {
-                let normalized_phrase: String = phrase.to_lowercase()
-                    .chars()
-                    .filter(|c| !chars_to_remove.contains(*c))
-                    .collect();
-                normalized.contains(&normalized_phrase)
-            })
-    }
-
-    /// Check if text matches stop command phrases
-    pub fn matches_stop_command(&self, text: &str) -> bool {
-        let chars_to_remove = "。、！？.,!? 　\r\n";
-        let normalized: String = text.to_lowercase()
-            .chars()
-            .filter(|c| !chars_to_remove.contains(*c))
-            .collect();
-        self.stop_command_phrases
-            .split('|')
-            .any(|phrase| {
-                let normalized_phrase: String = phrase.to_lowercase()
-                    .chars()
-                    .filter(|c| !chars_to_remove.contains(*c))
-                    .collect();
-                normalized.contains(&normalized_phrase)
-            })
-    }
-
     /// Parse hotkey string into HotKey
     pub fn parse_hotkey(&self) -> Result<HotKey, String> {
         let parts: Vec<&str> = self.hotkey.split('+').map(|s| s.trim()).collect();
