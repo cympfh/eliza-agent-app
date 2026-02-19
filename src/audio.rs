@@ -30,10 +30,6 @@ impl AudioRecorder {
         })
     }
 
-    pub fn get_max_amplitude(&self) -> f32 {
-        *self.current_max_amplitude.lock().unwrap()
-    }
-
     /// VAD判定用RMS振幅 (バッファRMSのEMA)
     pub fn get_rms_amplitude(&self) -> f32 {
         *self.current_rms.lock().unwrap()

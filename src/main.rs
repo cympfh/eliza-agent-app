@@ -7,10 +7,6 @@ mod vrchat;
 use audio::AudioRecorder;
 use config::Config;
 use eframe::egui;
-use global_hotkey::{
-    hotkey::{Code, HotKey, Modifiers},
-    GlobalHotKeyEvent, GlobalHotKeyManager,
-};
 use eliza::ElizaClient;
 use openai::OpenAIClient;
 use std::path::PathBuf;
@@ -123,11 +119,6 @@ struct ElizaAgentApp {
     available_devices: Vec<String>,
     selected_device_index: usize,
 
-    // Hotkey
-    hotkey_manager: GlobalHotKeyManager,
-    current_hotkey: HotKey,
-    settings_hotkey: String,
-
     // Conversation history display
     conversation_history: Vec<(String, String)>, // (role, message)
 }
@@ -149,19 +140,6 @@ impl ElizaAgentApp {
         } else {
             0
         };
-
-        // Initialize hotkey manager
-        let hotkey_manager = GlobalHotKeyManager::new().expect("Failed to create hotkey manager");
-        let current_hotkey = config.parse_hotkey().unwrap_or_else(|e| {
-            eprintln!("Failed to parse hotkey '{}': {}", config.hotkey, e);
-            HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyG)
-        });
-
-        if let Err(e) = hotkey_manager.register(current_hotkey) {
-            eprintln!("Failed to register global hotkey: {}", e);
-        } else {
-            println!("Global hotkey registered: {}", config.hotkey);
-        }
 
         // Start VRChat mute listener if enabled
         let mute_receiver = if config.use_vrchat_mute_detection {
@@ -199,9 +177,6 @@ impl ElizaAgentApp {
             settings_use_vrchat_mute_detection: config.use_vrchat_mute_detection,
             available_devices,
             selected_device_index,
-            hotkey_manager,
-            current_hotkey,
-            settings_hotkey: config.hotkey.clone(),
             conversation_history: Vec::new(),
             config,
         }
@@ -498,18 +473,6 @@ fn process_pipeline(
 
 impl eframe::App for ElizaAgentApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Check for global hotkey events
-        if let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
-            if event.id == self.current_hotkey.id() {
-                println!("Global hotkey triggered");
-                if self.state == AppState::Idle {
-                    self.start_monitoring();
-                } else if self.state == AppState::Monitoring {
-                    self.stop_monitoring();
-                }
-            }
-        }
-
         // Check for processing messages
         if let Some(receiver) = &self.processing_receiver {
             if let Ok(message) = receiver.try_recv() {

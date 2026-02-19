@@ -37,6 +37,6 @@ MuteSelf=false → ミュート解除 → stop_monitoring
   "system_prompt": "あなたはユーザーと楽しく会話し、web検索をしたり、tool を使って身の回りの手伝いをするエージェントです。 ...",
 ```
 
-5. hotkey の設定は使ったことない。削除。
+5. [☑ 2026-02-19] hotkey の設定は使ったことない。削除。
 
-6. Refactoring: fire all warnings (NOTE: You can compile this by GNU make (make build-windows))
+6. [☑ 2026-02-19] Refactoring: fire all warnings (NOTE: You can compile this by GNU make (make build-windows))

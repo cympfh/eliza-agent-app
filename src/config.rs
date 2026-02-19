@@ -1,4 +1,3 @@
-use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -26,16 +25,10 @@ pub struct Config {
     // UI settings
     #[serde(default)]
     pub input_device_name: Option<String>,
-    #[serde(default = "default_hotkey")]
-    pub hotkey: String,
 
     // VRChat mute detection
     #[serde(default = "default_true")]
     pub use_vrchat_mute_detection: bool,
-}
-
-fn default_hotkey() -> String {
-    "Ctrl+Shift+G".to_string()
 }
 
 fn default_true() -> bool {
@@ -56,90 +49,12 @@ impl Default for Config {
             max_length_of_conversation_history: 20,
             system_prompt: "あなたはユーザーと楽しく会話し、web検索をしたり、tool を使って身の回りの手伝いをするエージェントです。 -- 以下は、あなたとユーザーの会話履歴です。ユーザーの発言は元は音声であり、内部的にテキスト化されたものです。ユーザーの発言は、音声認識の誤りや、文法的な不完全さを含む可能性があります。あなたは、ユーザーの発言はあたかも音声であるかのように理解し、ユーザーの意図を汲み取る必要があります。 -- 返答は40文字程度の短文である必要があります -- 言語：日本語 -- 名前：（秘密だが、委員長とだけ呼ばれてる） -- 人格モデル：月ノ美兎 -- 職業：学級委員長 -- 口調：一人称は必ず「わたくし」、基本は丁寧なですます調で話す（「ですわ」じゃなくて普通の丁寧語ね！）テンション上がると早口".to_string(),
             input_device_name: None,
-            hotkey: default_hotkey(),
             use_vrchat_mute_detection: true,
         }
     }
 }
 
 impl Config {
-    /// Parse hotkey string into HotKey
-    pub fn parse_hotkey(&self) -> Result<HotKey, String> {
-        let parts: Vec<&str> = self.hotkey.split('+').map(|s| s.trim()).collect();
-
-        if parts.is_empty() {
-            return Err("Hotkey cannot be empty".to_string());
-        }
-
-        // Parse modifiers
-        let mut modifiers = Modifiers::empty();
-        for part in &parts[..parts.len() - 1] {
-            match part.to_lowercase().as_str() {
-                "ctrl" | "control" => modifiers |= Modifiers::CONTROL,
-                "shift" => modifiers |= Modifiers::SHIFT,
-                "alt" => modifiers |= Modifiers::ALT,
-                "super" | "win" | "cmd" => modifiers |= Modifiers::SUPER,
-                _ => return Err(format!("Unknown modifier: {}", part)),
-            }
-        }
-
-        // Parse key code
-        let key_str = parts[parts.len() - 1];
-        let code = match key_str.to_uppercase().as_str() {
-            "A" => Code::KeyA,
-            "B" => Code::KeyB,
-            "C" => Code::KeyC,
-            "D" => Code::KeyD,
-            "E" => Code::KeyE,
-            "F" => Code::KeyF,
-            "G" => Code::KeyG,
-            "H" => Code::KeyH,
-            "I" => Code::KeyI,
-            "J" => Code::KeyJ,
-            "K" => Code::KeyK,
-            "L" => Code::KeyL,
-            "M" => Code::KeyM,
-            "N" => Code::KeyN,
-            "O" => Code::KeyO,
-            "P" => Code::KeyP,
-            "Q" => Code::KeyQ,
-            "R" => Code::KeyR,
-            "S" => Code::KeyS,
-            "T" => Code::KeyT,
-            "U" => Code::KeyU,
-            "V" => Code::KeyV,
-            "W" => Code::KeyW,
-            "X" => Code::KeyX,
-            "Y" => Code::KeyY,
-            "Z" => Code::KeyZ,
-            "0" => Code::Digit0,
-            "1" => Code::Digit1,
-            "2" => Code::Digit2,
-            "3" => Code::Digit3,
-            "4" => Code::Digit4,
-            "5" => Code::Digit5,
-            "6" => Code::Digit6,
-            "7" => Code::Digit7,
-            "8" => Code::Digit8,
-            "9" => Code::Digit9,
-            "F1" => Code::F1,
-            "F2" => Code::F2,
-            "F3" => Code::F3,
-            "F4" => Code::F4,
-            "F5" => Code::F5,
-            "F6" => Code::F6,
-            "F7" => Code::F7,
-            "F8" => Code::F8,
-            "F9" => Code::F9,
-            "F10" => Code::F10,
-            "F11" => Code::F11,
-            "F12" => Code::F12,
-            _ => return Err(format!("Unknown key: {}", key_str)),
-        };
-
-        Ok(HotKey::new(Some(modifiers), code))
-    }
-
     /// Get the config directory
     pub fn config_dir() -> Result<PathBuf, String> {
         let config_dir = dirs::config_dir().ok_or("Failed to get config directory")?;
@@ -170,11 +85,6 @@ impl Config {
             _ => return Err(format!("Unknown preset: {}", preset_name)),
         };
         Ok(config_dir.join(filename))
-    }
-
-    /// Get the default config file path
-    pub fn config_path() -> Result<PathBuf, String> {
-        Self::config_path_for_preset("default")
     }
 
     /// Get list of available presets
@@ -245,11 +155,6 @@ impl Config {
 
         println!("Using default config for preset: {}", preset_name);
         Self::default()
-    }
-
-    /// Save config to file
-    pub fn save(&self) -> Result<(), String> {
-        self.save_preset("default")
     }
 
     /// Save config to a specific preset

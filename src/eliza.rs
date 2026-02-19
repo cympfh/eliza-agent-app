@@ -197,10 +197,6 @@ impl ElizaClient {
         println!("Conversation history cleared");
     }
 
-    /// Get current conversation history
-    pub fn get_history(&self) -> &VecDeque<Message> {
-        &self.conversation_history
-    }
 }
 
 #[cfg(test)]
