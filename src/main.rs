@@ -823,10 +823,54 @@ impl eframe::App for ElizaAgentApp {
                     AppState::CalibratingVoice => ("⏹ 停止して閾値を確定", true),
                 };
 
-                if ui
-                    .add(egui::Button::new(button_text).min_size(egui::vec2(300.0, 60.0)))
-                    .clicked()
-                {
+                // Calculate silence progress for Recording state
+                let silence_progress = if self.state == AppState::Recording {
+                    if let Some(recorder) = &self.audio_recorder {
+                        let silence_elapsed = recorder.get_silence_duration().as_secs_f32();
+                        (silence_elapsed / self.config.silence_duration_secs).min(1.0)
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                };
+
+                let button_size = egui::vec2(300.0, 60.0);
+                let (rect, response) = ui.allocate_exact_size(button_size, egui::Sense::click());
+
+                // Draw button background
+                let visuals = ui.style().interact(&response);
+                ui.painter().rect_filled(rect, visuals.rounding, visuals.bg_fill);
+
+                // Draw silence progress bar (start full, drain as silence progresses) when recording
+                if self.state == AppState::Recording {
+                    let fill_height = rect.height() * (1.0 - silence_progress);
+                    if fill_height > 0.0 {
+                        let progress_rect = egui::Rect::from_min_size(
+                            egui::pos2(rect.min.x, rect.max.y - fill_height),
+                            egui::vec2(rect.width(), fill_height),
+                        );
+                        ui.painter().rect_filled(
+                            progress_rect,
+                            visuals.rounding,
+                            egui::Color32::from_rgb(100, 200, 255),
+                        );
+                    }
+                }
+
+                // Draw button border
+                ui.painter().rect_stroke(rect, visuals.rounding, visuals.bg_stroke);
+
+                // Draw button text
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    button_text,
+                    egui::FontId::proportional(18.0),
+                    visuals.text_color(),
+                );
+
+                if response.clicked() {
                     if is_stop_button {
                         if self.state == AppState::CalibratingVoice {
                             // 発話フェーズ完了: 平均 RMS を start_threshold に
