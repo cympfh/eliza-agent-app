@@ -1,6 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 pub struct AudioRecorder {
@@ -11,6 +12,8 @@ pub struct AudioRecorder {
     silence_threshold: f32,
     recording_start_time: Arc<Mutex<Option<Instant>>>,
     current_max_amplitude: Arc<Mutex<f32>>,
+    /// VAD判定用: バッファRMSのEMA (ピークより安定)
+    current_rms: Arc<Mutex<f32>>,
 }
 
 impl AudioRecorder {
@@ -23,11 +26,17 @@ impl AudioRecorder {
             silence_threshold,
             recording_start_time: Arc::new(Mutex::new(None)),
             current_max_amplitude: Arc::new(Mutex::new(0.0)),
+            current_rms: Arc::new(Mutex::new(0.0)),
         })
     }
 
     pub fn get_max_amplitude(&self) -> f32 {
         *self.current_max_amplitude.lock().unwrap()
+    }
+
+    /// VAD判定用RMS振幅 (バッファRMSのEMA)
+    pub fn get_rms_amplitude(&self) -> f32 {
+        *self.current_rms.lock().unwrap()
     }
 
     pub fn is_silent(&self, silence_duration_secs: f32) -> bool {
@@ -123,6 +132,7 @@ impl AudioRecorder {
         let buffer_clone = Arc::clone(&self.audio_buffer);
         let last_sound_clone = Arc::clone(&self.last_sound_time);
         let max_amplitude_clone = Arc::clone(&self.current_max_amplitude);
+        let current_rms_clone = Arc::clone(&self.current_rms);
         let threshold = self.silence_threshold;
 
         // First try with mono config
@@ -133,6 +143,7 @@ impl AudioRecorder {
                 buffer_clone.clone(),
                 last_sound_clone.clone(),
                 max_amplitude_clone.clone(),
+                current_rms_clone.clone(),
                 threshold,
             ),
             cpal::SampleFormat::I16 => self.build_input_stream::<i16>(
@@ -141,6 +152,7 @@ impl AudioRecorder {
                 buffer_clone.clone(),
                 last_sound_clone.clone(),
                 max_amplitude_clone.clone(),
+                current_rms_clone.clone(),
                 threshold,
             ),
             cpal::SampleFormat::U16 => self.build_input_stream::<u16>(
@@ -149,6 +161,7 @@ impl AudioRecorder {
                 buffer_clone.clone(),
                 last_sound_clone.clone(),
                 max_amplitude_clone.clone(),
+                current_rms_clone.clone(),
                 threshold,
             ),
             _ => return Err("Unsupported sample format".to_string()),
@@ -189,6 +202,7 @@ impl AudioRecorder {
                         buffer_clone,
                         last_sound_clone,
                         max_amplitude_clone,
+                        current_rms_clone,
                         threshold,
                         channels,
                     ),
@@ -198,6 +212,7 @@ impl AudioRecorder {
                         buffer_clone,
                         last_sound_clone,
                         max_amplitude_clone,
+                        current_rms_clone,
                         threshold,
                         channels,
                     ),
@@ -207,6 +222,7 @@ impl AudioRecorder {
                         buffer_clone,
                         last_sound_clone,
                         max_amplitude_clone,
+                        current_rms_clone,
                         threshold,
                         channels,
                     ),
@@ -250,6 +266,7 @@ impl AudioRecorder {
         buffer: Arc<Mutex<Vec<f32>>>,
         last_sound_time: Arc<Mutex<Instant>>,
         current_max_amplitude: Arc<Mutex<f32>>,
+        current_rms: Arc<Mutex<f32>>,
         threshold: f32,
     ) -> Result<cpal::Stream, String>
     where
@@ -257,6 +274,7 @@ impl AudioRecorder {
         f32: cpal::FromSample<T>,
     {
         let err_fn = |err| eprintln!("An error occurred on the audio stream: {}", err);
+        static BUFFER_COUNT: AtomicU32 = AtomicU32::new(0);
 
         let stream = device
             .build_input_stream(
@@ -265,6 +283,7 @@ impl AudioRecorder {
                     let mut buffer = buffer.lock().unwrap();
                     let mut has_sound = false;
                     let mut max_amplitude = 0.0f32;
+                    let mut sum_sq = 0.0f32;
 
                     for &sample in data.iter() {
                         let sample_f32: f32 = cpal::Sample::from_sample(sample);
@@ -272,32 +291,41 @@ impl AudioRecorder {
 
                         let abs_sample = sample_f32.abs();
                         max_amplitude = max_amplitude.max(abs_sample);
+                        sum_sq += sample_f32 * sample_f32;
 
-                        // Check if this sample exceeds the silence threshold
                         if abs_sample > threshold {
                             has_sound = true;
                         }
                     }
 
-                    // Update current max amplitude (exponential moving average for smooth display)
+                    let buffer_rms = (sum_sq / data.len() as f32).sqrt();
+
+                    // ピーク振幅: 減衰してから新しいピークをmax (表示用)
                     {
                         let mut current_max = current_max_amplitude.lock().unwrap();
-                        *current_max = current_max.max(max_amplitude) * 0.95; // Decay slowly
+                        *current_max = (*current_max * 0.85).max(max_amplitude);
                     }
 
-                    // Debug: Print max amplitude every 50 buffers (~1 second)
-                    static mut BUFFER_COUNT: u32 = 0;
-                    unsafe {
-                        BUFFER_COUNT += 1;
-                        if BUFFER_COUNT.is_multiple_of(50) {
-                            println!(
-                                "Max amplitude: {:.6}, Has sound: {}, Threshold: {}",
-                                max_amplitude, has_sound, threshold
-                            );
+                    // RMS振幅: EMAで平滑化 (VAD判定用)
+                    {
+                        let mut rms = current_rms.lock().unwrap();
+                        // 上昇は素早く、下降はゆっくり
+                        if buffer_rms > *rms {
+                            *rms = *rms * 0.6 + buffer_rms * 0.4;
+                        } else {
+                            *rms = *rms * 0.9;
                         }
                     }
 
-                    // Update last sound time if sound was detected
+                    let count = BUFFER_COUNT.fetch_add(1, Ordering::Relaxed);
+                    if count % 50 == 0 {
+                        let rms_val = *current_rms.lock().unwrap();
+                        println!(
+                            "RMS(EMA): {:.6}, Peak(buf): {:.6}, Threshold: {:.6}",
+                            rms_val, max_amplitude, threshold
+                        );
+                    }
+
                     if has_sound {
                         let mut last_sound = last_sound_time.lock().unwrap();
                         *last_sound = Instant::now();
@@ -318,6 +346,7 @@ impl AudioRecorder {
         buffer: Arc<Mutex<Vec<f32>>>,
         last_sound_time: Arc<Mutex<Instant>>,
         current_max_amplitude: Arc<Mutex<f32>>,
+        current_rms: Arc<Mutex<f32>>,
         threshold: f32,
         channels: u16,
     ) -> Result<cpal::Stream, String>
@@ -326,6 +355,7 @@ impl AudioRecorder {
         f32: cpal::FromSample<T>,
     {
         let err_fn = |err| eprintln!("An error occurred on the audio stream: {}", err);
+        static BUFFER_COUNT: AtomicU32 = AtomicU32::new(0);
 
         let stream = device
             .build_input_stream(
@@ -334,22 +364,25 @@ impl AudioRecorder {
                     let mut buffer = buffer.lock().unwrap();
                     let mut has_sound = false;
                     let mut max_amplitude = 0.0f32;
+                    let mut sum_sq = 0.0f32;
+                    let mut mono_count = 0usize;
 
                     if channels == 1 {
-                        // Mono: process all samples directly
                         for &sample in data.iter() {
                             let sample_f32: f32 = cpal::Sample::from_sample(sample);
                             buffer.push(sample_f32);
 
                             let abs_sample = sample_f32.abs();
                             max_amplitude = max_amplitude.max(abs_sample);
+                            sum_sq += sample_f32 * sample_f32;
+                            mono_count += 1;
 
                             if abs_sample > threshold {
                                 has_sound = true;
                             }
                         }
                     } else {
-                        // Multi-channel: convert to mono by averaging channels
+                        // Multi-channel: モノミックスしてからRMS計算
                         for chunk in data.chunks_exact(channels as usize) {
                             let mut sum = 0.0f32;
                             for &sample in chunk {
@@ -361,6 +394,8 @@ impl AudioRecorder {
 
                             let abs_sample = mono_sample.abs();
                             max_amplitude = max_amplitude.max(abs_sample);
+                            sum_sq += mono_sample * mono_sample;
+                            mono_count += 1;
 
                             if abs_sample > threshold {
                                 has_sound = true;
@@ -368,25 +403,37 @@ impl AudioRecorder {
                         }
                     }
 
-                    // Update current max amplitude (exponential moving average for smooth display)
+                    let buffer_rms = if mono_count > 0 {
+                        (sum_sq / mono_count as f32).sqrt()
+                    } else {
+                        0.0
+                    };
+
+                    // ピーク振幅: 減衰してから新しいピークをmax (表示用)
                     {
                         let mut current_max = current_max_amplitude.lock().unwrap();
-                        *current_max = current_max.max(max_amplitude) * 0.95; // Decay slowly
+                        *current_max = (*current_max * 0.85).max(max_amplitude);
                     }
 
-                    // Debug: Print max amplitude every 50 buffers (~1 second)
-                    static mut BUFFER_COUNT: u32 = 0;
-                    unsafe {
-                        BUFFER_COUNT += 1;
-                        if BUFFER_COUNT.is_multiple_of(50) {
-                            println!(
-                                "Max amplitude: {:.6}, Has sound: {}, Threshold: {}, Channels: {}",
-                                max_amplitude, has_sound, threshold, channels
-                            );
+                    // RMS振幅: EMAで平滑化 (VAD判定用)
+                    {
+                        let mut rms = current_rms.lock().unwrap();
+                        if buffer_rms > *rms {
+                            *rms = *rms * 0.6 + buffer_rms * 0.4;
+                        } else {
+                            *rms = *rms * 0.9;
                         }
                     }
 
-                    // Update last sound time if sound was detected
+                    let count = BUFFER_COUNT.fetch_add(1, Ordering::Relaxed);
+                    if count % 50 == 0 {
+                        let rms_val = *current_rms.lock().unwrap();
+                        println!(
+                            "RMS(EMA): {:.6}, Peak(buf): {:.6}, Threshold: {:.6}, Channels: {}",
+                            rms_val, max_amplitude, threshold, channels
+                        );
+                    }
+
                     if has_sound {
                         let mut last_sound = last_sound_time.lock().unwrap();
                         *last_sound = Instant::now();
@@ -470,6 +517,18 @@ impl AudioRecorder {
 impl Default for AudioRecorder {
     fn default() -> Self {
         Self::new(0.01).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod audio_tests {
+    use super::*;
+
+    #[test]
+    fn test_new_has_zero_rms() {
+        let recorder = AudioRecorder::new(0.01).unwrap();
+        assert_eq!(recorder.get_rms_amplitude(), 0.0);
+        assert_eq!(recorder.get_max_amplitude(), 0.0);
     }
 }
 

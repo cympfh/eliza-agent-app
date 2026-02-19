@@ -103,6 +103,9 @@ struct ElizaAgentApp {
     // Voice command state
     is_listening: bool, // Whether agent is actively listening and responding
 
+    // VAD: 単発ノイズスパイクで誤検出しないよう連続カウント
+    voice_detection_count: u32,
+
     // Settings UI
     show_settings: bool,
     settings_openai_key: String,
@@ -172,6 +175,7 @@ impl ElizaAgentApp {
             eliza_client: None,
             processing_receiver: None,
             is_listening: false, // Start with listening disabled
+            voice_detection_count: 0,
             show_settings: false,
             settings_openai_key: config.openai_api_key.clone(),
             settings_agent_server_url: config.agent_server_url.clone(),
@@ -253,6 +257,7 @@ impl ElizaAgentApp {
         self.state = AppState::Idle;
         self.status_message = "Stopped.".to_string();
         self.recording_info.clear();
+        self.voice_detection_count = 0;
     }
 
     fn switch_preset(&mut self, preset_name: &str) {
@@ -563,11 +568,18 @@ impl eframe::App for ElizaAgentApp {
         }
 
         // Monitor for voice detection in Monitoring state
+        // RMSベースで判定し、連続2回以上で録音開始 (単発ノイズスパイク誤検出防止)
         if self.state == AppState::Monitoring {
             if let Some(recorder) = &self.audio_recorder {
-                let amplitude = recorder.get_max_amplitude();
-                if amplitude > self.config.start_threshold {
-                    self.start_recording();
+                let rms = recorder.get_rms_amplitude();
+                if rms > self.config.start_threshold {
+                    self.voice_detection_count += 1;
+                    if self.voice_detection_count >= 2 {
+                        self.voice_detection_count = 0;
+                        self.start_recording();
+                    }
+                } else {
+                    self.voice_detection_count = 0;
                 }
             }
         }
