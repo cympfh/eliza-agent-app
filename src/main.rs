@@ -494,20 +494,27 @@ impl eframe::App for ElizaAgentApp {
                             .push(("Agent".to_string(), response.clone()));
                     }
                     ProcessingMessage::Complete(eliza_client) => {
-                        self.status_message = "Sent to VRChat! Ready for next input.".to_string();
                         self.processing_receiver = None;
-                        // Restore the eliza_client for next use
+                        // Restore the eliza_client for next use (regardless of state)
                         self.eliza_client = eliza_client;
-                        self.start_monitoring();
+                        // Only restart monitoring if we're still in Processing state
+                        // (user may have manually stopped while waiting for response)
+                        if self.state == AppState::Processing {
+                            self.status_message = "Sent to VRChat! Ready for next input.".to_string();
+                            self.start_monitoring();
+                        }
                     }
                     ProcessingMessage::Error(error, eliza_client) => {
-                        self.status_message = format!("❌ Error: {}", error);
                         self.processing_receiver = None;
-                        // Restore ElizaClient to preserve conversation history
+                        // Restore ElizaClient to preserve conversation history (regardless of state)
                         if eliza_client.is_some() {
                             self.eliza_client = eliza_client;
                         }
-                        self.start_monitoring();
+                        // Only restart monitoring if we're still in Processing state
+                        if self.state == AppState::Processing {
+                            self.status_message = format!("❌ Error: {}", error);
+                            self.start_monitoring();
+                        }
                     }
                 }
             }
