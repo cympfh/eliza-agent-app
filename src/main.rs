@@ -65,6 +65,8 @@ enum AppState {
     Monitoring,
     Recording,
     Processing,
+    CalibratingSilence, // キャリブレーション: 無音フェーズ (2秒)
+    CalibratingVoice,   // キャリブレーション: 発話フェーズ (2秒以上)
 }
 
 enum ProcessingMessage {
@@ -98,6 +100,10 @@ struct ElizaAgentApp {
 
     // VAD: 単発ノイズスパイクで誤検出しないよう連続カウント
     voice_detection_count: u32,
+
+    // Calibration
+    calib_start_time: Option<std::time::Instant>,
+    calib_rms_samples: Vec<f32>,
 
     // Settings UI
     show_settings: bool,
@@ -177,6 +183,8 @@ impl ElizaAgentApp {
             processing_receiver: None,
             mute_receiver,
             voice_detection_count: 0,
+            calib_start_time: None,
+            calib_rms_samples: Vec::new(),
             show_settings: false,
             settings_openai_key: config.openai_api_key.clone(),
             settings_agent_server_url: config.agent_server_url.clone(),
@@ -253,6 +261,36 @@ impl ElizaAgentApp {
         self.status_message = "Stopped.".to_string();
         self.recording_info.clear();
         self.voice_detection_count = 0;
+    }
+
+    fn start_calibration(&mut self) {
+        println!("Starting calibration: silence phase");
+        // マイクを起動（silence_threshold=0 で全サンプル拾う）
+        match AudioRecorder::new(0.0) {
+            Ok(mut recorder) => {
+                let device_name = self
+                    .config
+                    .input_device_name
+                    .as_ref()
+                    .filter(|name| name.as_str() != "Windows既定")
+                    .map(|s| s.as_str());
+                match recorder.start_recording_with_device(device_name) {
+                    Ok(_) => {
+                        self.audio_recorder = Some(recorder);
+                        self.state = AppState::CalibratingSilence;
+                        self.calib_start_time = Some(std::time::Instant::now());
+                        self.calib_rms_samples = Vec::new();
+                        self.status_message = "キャリブレーション: 静かにしてください... (2秒)".to_string();
+                    }
+                    Err(e) => {
+                        self.status_message = format!("Error: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                self.status_message = format!("Error: {}", e);
+            }
+        }
     }
 
     fn switch_preset(&mut self, preset_name: &str) {
@@ -534,6 +572,45 @@ impl eframe::App for ElizaAgentApp {
             }
         }
 
+        // Calibration: silence phase (2 seconds)
+        if self.state == AppState::CalibratingSilence {
+            if let Some(recorder) = &self.audio_recorder {
+                let rms = recorder.get_rms_amplitude();
+                self.calib_rms_samples.push(rms);
+
+                let elapsed = self.calib_start_time.map(|t| t.elapsed().as_secs_f32()).unwrap_or(0.0);
+                self.recording_info = format!("無音録音中: {:.1}s / 2.0s", elapsed);
+
+                if elapsed >= 2.0 {
+                    // 無音フェーズ完了: 最大 RMS を silence_threshold に
+                    let max_rms = self.calib_rms_samples.iter().cloned().fold(0.0f32, f32::max);
+                    self.config.silence_threshold = max_rms;
+                    self.settings_silence_threshold = max_rms;
+                    println!("Calib silence done: max_rms={:.6} → silence_threshold", max_rms);
+
+                    // 発話フェーズへ
+                    self.calib_rms_samples.clear();
+                    self.calib_start_time = Some(std::time::Instant::now());
+                    self.state = AppState::CalibratingVoice;
+                    self.status_message = "キャリブレーション: 話してください... (2秒以上)".to_string();
+                    self.recording_info = String::new();
+                }
+            }
+            ctx.request_repaint();
+        }
+
+        // Calibration: voice phase (2+ seconds, manual stop via button)
+        if self.state == AppState::CalibratingVoice {
+            if let Some(recorder) = &self.audio_recorder {
+                let rms = recorder.get_rms_amplitude();
+                self.calib_rms_samples.push(rms);
+
+                let elapsed = self.calib_start_time.map(|t| t.elapsed().as_secs_f32()).unwrap_or(0.0);
+                self.recording_info = format!("発話録音中: {:.1}s (2秒以上話したら停止ボタン)", elapsed);
+            }
+            ctx.request_repaint();
+        }
+
         // Monitor for voice detection in Monitoring state
         // RMSベースで判定し、連続2回以上で録音開始 (単発ノイズスパイク誤検出防止)
         if self.state == AppState::Monitoring {
@@ -759,9 +836,11 @@ impl eframe::App for ElizaAgentApp {
                 // Status
                 let status_color = match self.state {
                     AppState::Idle => egui::Color32::GRAY,
-                    AppState::Monitoring => egui::Color32::from_rgb(0, 128, 0), // Dark green
+                    AppState::Monitoring => egui::Color32::from_rgb(0, 128, 0),
                     AppState::Recording => egui::Color32::RED,
-                    AppState::Processing => egui::Color32::from_rgb(200, 100, 0), // Dark orange
+                    AppState::Processing => egui::Color32::from_rgb(200, 100, 0),
+                    AppState::CalibratingSilence => egui::Color32::from_rgb(100, 100, 200),
+                    AppState::CalibratingVoice => egui::Color32::from_rgb(200, 100, 200),
                 };
                 ui.colored_label(status_color, &self.status_message);
 
@@ -777,17 +856,53 @@ impl eframe::App for ElizaAgentApp {
                     AppState::Monitoring => ("⏹ Stop", true),
                     AppState::Recording => ("⏹ Stop", true),
                     AppState::Processing => ("⏹ Stop", true),
+                    AppState::CalibratingSilence => ("⏹ Stop", true),
+                    AppState::CalibratingVoice => ("⏹ 停止して閾値を確定", true),
                 };
 
-                // Stop button is always enabled
                 if ui
                     .add(egui::Button::new(button_text).min_size(egui::vec2(300.0, 60.0)))
                     .clicked()
                 {
                     if is_stop_button {
-                        self.stop_monitoring();
+                        if self.state == AppState::CalibratingVoice {
+                            // 発話フェーズ完了: 平均 RMS を start_threshold に
+                            if !self.calib_rms_samples.is_empty() {
+                                let avg_rms = self.calib_rms_samples.iter().sum::<f32>()
+                                    / self.calib_rms_samples.len() as f32;
+                                self.config.start_threshold = avg_rms;
+                                self.settings_start_threshold = avg_rms;
+                                println!("Calib voice done: avg_rms={:.6} → start_threshold", avg_rms);
+                                self.status_message = format!(
+                                    "✓ キャリブレーション完了! silence={:.4}, start={:.4}",
+                                    self.config.silence_threshold,
+                                    self.config.start_threshold
+                                );
+                            }
+                            if let Some(mut recorder) = self.audio_recorder.take() {
+                                recorder.stop_recording();
+                            }
+                            self.state = AppState::Idle;
+                            self.recording_info.clear();
+                            self.calib_rms_samples.clear();
+                            self.calib_start_time = None;
+                        } else {
+                            self.stop_monitoring();
+                        }
                     } else {
                         self.start_monitoring();
+                    }
+                }
+
+                ui.add_space(5.0);
+
+                // Calibration button (Idle 時のみ表示)
+                if self.state == AppState::Idle {
+                    if ui
+                        .add(egui::Button::new("⚙ 音量閾値を自動設定").min_size(egui::vec2(300.0, 30.0)))
+                        .clicked()
+                    {
+                        self.start_calibration();
                     }
                 }
 
