@@ -21,7 +21,7 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([450.0, 600.0])
+            .with_inner_size([450.0, 740.0])
             .with_resizable(true),
         ..Default::default()
     };
@@ -121,6 +121,9 @@ struct ElizaAgentApp {
 
     // Conversation history display
     conversation_history: Vec<(String, String)>, // (role, message)
+
+    // Text input for direct text sending
+    text_input: String,
 }
 
 impl ElizaAgentApp {
@@ -178,6 +181,7 @@ impl ElizaAgentApp {
             available_devices,
             selected_device_index,
             conversation_history: Vec::new(),
+            text_input: String::new(),
             config,
         }
     }
@@ -378,6 +382,35 @@ impl ElizaAgentApp {
             // ElizaClient is returned via ProcessingMessage::Complete
         });
     }
+
+    fn send_text_message(&mut self, text: String) {
+        if text.trim().is_empty() {
+            return;
+        }
+
+        // Ensure ElizaClient is initialized
+        if self.eliza_client.is_none() && !self.config.agent_server_url.is_empty() {
+            self.eliza_client = Some(ElizaClient::new(
+                self.config.agent_server_url.clone(),
+                self.config.agent_model.clone(),
+                self.config.max_length_of_conversation_history,
+                self.config.system_prompt.clone(),
+            ));
+        }
+
+        // Add to conversation history immediately
+        self.conversation_history.push(("You".to_string(), text.clone()));
+        self.status_message = "Sending to Eliza...".to_string();
+
+        let (sender, receiver) = channel();
+        self.processing_receiver = Some(receiver);
+
+        let eliza_client = self.eliza_client.take();
+
+        std::thread::spawn(move || {
+            text_pipeline(text, eliza_client, sender);
+        });
+    }
 }
 
 fn process_pipeline(
@@ -471,6 +504,60 @@ fn process_pipeline(
     None
 }
 
+fn text_pipeline(
+    text: String,
+    eliza_client: Option<ElizaClient>,
+    sender: Sender<ProcessingMessage>,
+) {
+    let _ = sender.send(ProcessingMessage::ElizaInProgress);
+
+    if eliza_client.is_none() {
+        let _ = sender.send(ProcessingMessage::Error(
+            "Eliza client not initialized".to_string(),
+            None,
+        ));
+        return;
+    }
+
+    // Send quoted text to VRChat
+    let quoted_text = format!("> {}", text);
+    let vrchat = VRChatClient::new();
+    if let Err(e) = vrchat.send_message(&quoted_text) {
+        eprintln!("VRChat text send failed: {}", e);
+    }
+
+    let mut client = eliza_client.unwrap();
+    let eliza_response = match client.send_message(&text) {
+        Ok(response) => response,
+        Err(e) => {
+            let _ = sender.send(ProcessingMessage::Error(
+                format!("Eliza failed: {}", e),
+                Some(client),
+            ));
+            return;
+        }
+    };
+
+    let _ = sender.send(ProcessingMessage::ElizaComplete(eliza_response.clone()));
+
+    let vrchat = VRChatClient::new();
+    match vrchat.send_message(eliza_response.as_str()) {
+        Ok(_) => {
+            println!("VRChat message sent successfully");
+        }
+        Err(e) => {
+            eprintln!("VRChat send failed: {}", e);
+            let _ = sender.send(ProcessingMessage::Error(
+                format!("VRChat failed: {}", e),
+                Some(client),
+            ));
+            return;
+        }
+    }
+
+    let _ = sender.send(ProcessingMessage::Complete(Some(client)));
+}
+
 impl eframe::App for ElizaAgentApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for processing messages
@@ -502,6 +589,8 @@ impl eframe::App for ElizaAgentApp {
                         if self.state == AppState::Processing {
                             self.status_message = "Sent to VRChat! Ready for next input.".to_string();
                             self.start_monitoring();
+                        } else {
+                            self.status_message = "Sent to VRChat!".to_string();
                         }
                     }
                     ProcessingMessage::Error(error, eliza_client) => {
@@ -950,7 +1039,7 @@ impl eframe::App for ElizaAgentApp {
                         for (role, message) in &self.conversation_history {
                             ui.horizontal(|ui| {
                                 let color = if role == "You" {
-                                    egui::Color32::LIGHT_BLUE
+                                    egui::Color32::from_rgb(30, 80, 180)
                                 } else {
                                     egui::Color32::from_rgb(0, 128, 0) // Dark green
                                 };
@@ -960,6 +1049,57 @@ impl eframe::App for ElizaAgentApp {
                             ui.add_space(10.0);
                         }
                     });
+
+                // Text input area
+                ui.add_space(10.0);
+                ui.separator();
+                ui.label("テキスト送信 (Ctrl+Enter で送信 / Shift+Enter で改行):");
+
+                let text_edit = egui::TextEdit::multiline(&mut self.text_input)
+                    .desired_rows(3)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("ここにテキストを入力...");
+
+                let response = ui.add(text_edit);
+
+                // Handle Ctrl+Enter to send
+                if response.has_focus() {
+                    let ctrl = ctx.input(|i| i.modifiers.ctrl);
+                    let shift = ctx.input(|i| i.modifiers.shift);
+                    let enter_pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+
+                    if enter_pressed && ctrl && !shift {
+                        // Ctrl+Enter: send
+                        let text = self.text_input.trim().to_string();
+                        if !text.is_empty() && self.processing_receiver.is_none() {
+                            self.text_input.clear();
+                            self.send_text_message(text);
+                        }
+                    } else if enter_pressed && !shift && !ctrl {
+                        // Plain Enter: do nothing (remove the newline that was just added)
+                        // Remove trailing newline if added by egui
+                        if self.text_input.ends_with('\n') {
+                            self.text_input.pop();
+                        }
+                    }
+                    // Shift+Enter: allow newline (default egui behavior)
+                }
+
+                ui.add_space(5.0);
+                ui.horizontal(|ui| {
+                    let send_enabled = !self.text_input.trim().is_empty()
+                        && self.processing_receiver.is_none();
+                    if ui
+                        .add_enabled(send_enabled, egui::Button::new("送信 (Ctrl+Enter)"))
+                        .clicked()
+                    {
+                        let text = self.text_input.trim().to_string();
+                        if !text.is_empty() {
+                            self.text_input.clear();
+                            self.send_text_message(text);
+                        }
+                    }
+                });
 
                 // Warning if keys not set
                 if self.config.openai_api_key.is_empty() || self.config.agent_server_url.is_empty() {
