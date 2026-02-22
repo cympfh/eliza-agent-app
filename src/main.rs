@@ -69,7 +69,7 @@ enum ProcessingMessage {
     TranscriptionInProgress,
     TranscriptionComplete(String),
     ElizaInProgress,
-    ElizaComplete(String),
+    ElizaComplete(String, bool), // response text, sleep flag
     Complete(Option<ElizaClient>), // Processing complete, return ElizaClient
     Error(String, Option<ElizaClient>), // Error with ElizaClient (to preserve history)
 }
@@ -124,6 +124,9 @@ struct ElizaAgentApp {
 
     // Text input for direct text sending
     text_input: String,
+
+    // Sleep: set to true when Eliza detects user wants to sleep
+    pending_sleep: bool,
 }
 
 impl ElizaAgentApp {
@@ -182,6 +185,7 @@ impl ElizaAgentApp {
             selected_device_index,
             conversation_history: Vec::new(),
             text_input: String::new(),
+            pending_sleep: false,
             config,
         }
     }
@@ -466,8 +470,8 @@ fn process_pipeline(
     }
 
     let mut client = eliza_client.unwrap();
-    let eliza_response = match client.send_message(&transcribed_text) {
-        Ok(response) => response,
+    let (eliza_response, sleep) = match client.send_message(&transcribed_text) {
+        Ok(result) => result,
         Err(e) => {
             let _ = sender.send(ProcessingMessage::Error(
                 format!("Eliza failed: {}", e),
@@ -477,7 +481,7 @@ fn process_pipeline(
         }
     };
 
-    let _ = sender.send(ProcessingMessage::ElizaComplete(eliza_response.clone()));
+    let _ = sender.send(ProcessingMessage::ElizaComplete(eliza_response.clone(), sleep));
 
     // Step 3: Send to VRChat
     println!("===== VRChat Sending =====");
@@ -527,8 +531,8 @@ fn text_pipeline(
     }
 
     let mut client = eliza_client.unwrap();
-    let eliza_response = match client.send_message(&text) {
-        Ok(response) => response,
+    let (eliza_response, sleep) = match client.send_message(&text) {
+        Ok(result) => result,
         Err(e) => {
             let _ = sender.send(ProcessingMessage::Error(
                 format!("Eliza failed: {}", e),
@@ -538,7 +542,7 @@ fn text_pipeline(
         }
     };
 
-    let _ = sender.send(ProcessingMessage::ElizaComplete(eliza_response.clone()));
+    let _ = sender.send(ProcessingMessage::ElizaComplete(eliza_response.clone(), sleep));
 
     let vrchat = VRChatClient::new();
     match vrchat.send_message(eliza_response.as_str()) {
@@ -575,18 +579,26 @@ impl eframe::App for ElizaAgentApp {
                     ProcessingMessage::ElizaInProgress => {
                         self.status_message = "Asking Eliza...".to_string();
                     }
-                    ProcessingMessage::ElizaComplete(response) => {
+                    ProcessingMessage::ElizaComplete(response, sleep) => {
                         self.status_message = format!("Eliza: {}", response);
                         self.conversation_history
                             .push(("Agent".to_string(), response.clone()));
+                        if sleep {
+                            self.pending_sleep = true;
+                        }
                     }
                     ProcessingMessage::Complete(eliza_client) => {
                         self.processing_receiver = None;
                         // Restore the eliza_client for next use (regardless of state)
                         self.eliza_client = eliza_client;
-                        // Only restart monitoring if we're still in Processing state
-                        // (user may have manually stopped while waiting for response)
-                        if self.state == AppState::Processing {
+                        // Check if Eliza detected sleep intent
+                        if self.pending_sleep {
+                            self.pending_sleep = false;
+                            self.stop_monitoring();
+                            self.status_message = "おやすみなさい。モニタリングを停止しました。".to_string();
+                        } else if self.state == AppState::Processing {
+                            // Only restart monitoring if we're still in Processing state
+                            // (user may have manually stopped while waiting for response)
                             self.status_message = "Sent to VRChat! Ready for next input.".to_string();
                             self.start_monitoring();
                         } else {

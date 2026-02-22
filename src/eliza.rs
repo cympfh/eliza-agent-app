@@ -18,6 +18,8 @@ struct ChatRequest {
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
     message: Message,
+    #[serde(default)]
+    sleep: bool,
 }
 
 #[derive(Debug)]
@@ -58,8 +60,9 @@ impl ElizaClient {
         }
     }
 
-    /// Send a message to Eliza and get a response
-    pub fn send_message(&mut self, user_message: &str) -> Result<String, ElizaError> {
+    /// Send a message to Eliza and get a response.
+    /// Returns (response_text, sleep) where sleep=true means the user wants to sleep.
+    pub fn send_message(&mut self, user_message: &str) -> Result<(String, bool), ElizaError> {
         // Add user message to history
         self.add_message("user".to_string(), user_message.to_string());
 
@@ -121,12 +124,13 @@ impl ElizaClient {
         })?;
 
         let assistant_message = chat_response.message.content.clone();
+        let sleep = chat_response.sleep;
 
         // Add assistant message to history
         self.add_message("assistant".to_string(), assistant_message.clone());
 
-        println!("Eliza response: {}", assistant_message);
-        Ok(assistant_message)
+        println!("Eliza response: {} (sleep={})", assistant_message, sleep);
+        Ok((assistant_message, sleep))
     }
 
     /// Add a message to conversation history and maintain max length
