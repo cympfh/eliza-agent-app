@@ -20,6 +20,9 @@ struct ChatResponse {
     message: Message,
     #[serde(default)]
     sleep: bool,
+    #[serde(default)]
+    #[allow(dead_code)]
+    tool: Option<Vec<(serde_json::Value, Option<serde_json::Value>)>>,
 }
 
 #[derive(Debug)]
