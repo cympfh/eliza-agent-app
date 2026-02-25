@@ -20,7 +20,6 @@ pub struct Config {
     pub agent_server_url: String,
     pub agent_model: String,
     pub max_length_of_conversation_history: usize,
-    pub system_prompt: String,
 
     // UI settings
     #[serde(default)]
@@ -47,7 +46,6 @@ impl Default for Config {
             agent_server_url: "http://localhost:9096".to_string(),
             agent_model: "grok-4-1-fast".to_string(),
             max_length_of_conversation_history: 20,
-            system_prompt: "あなたはユーザーと楽しく会話し、web検索をしたり、tool を使って身の回りの手伝いをするエージェントです。 -- 以下は、あなたとユーザーの会話履歴です。ユーザーの発言は元は音声であり、内部的にテキスト化されたものです。ユーザーの発言は、音声認識の誤りや、文法的な不完全さを含む可能性があります。あなたは、ユーザーの発言はあたかも音声であるかのように理解し、ユーザーの意図を汲み取る必要があります。 -- 返答は40文字程度の短文である必要があります -- 言語：日本語 -- 名前：（秘密だが、委員長とだけ呼ばれてる） -- 人格モデル：月ノ美兎 -- 職業：学級委員長 -- 口調：一人称は必ず「わたくし」、基本は丁寧なですます調で話す（「ですわ」じゃなくて普通の丁寧語ね！）テンション上がると早口".to_string(),
             input_device_name: None,
             use_vrchat_mute_detection: true,
         }

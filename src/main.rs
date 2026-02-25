@@ -112,7 +112,6 @@ struct ElizaAgentApp {
     settings_custom_prompt: String,
     settings_agent_model: String,
     settings_max_history: usize,
-    settings_system_prompt: String,
     settings_use_vrchat_mute_detection: bool,
 
     // Device management
@@ -179,7 +178,6 @@ impl ElizaAgentApp {
             settings_custom_prompt: config.custom_prompt.clone(),
             settings_agent_model: config.agent_model.clone(),
             settings_max_history: config.max_length_of_conversation_history,
-            settings_system_prompt: config.system_prompt.clone(),
             settings_use_vrchat_mute_detection: config.use_vrchat_mute_detection,
             available_devices,
             selected_device_index,
@@ -202,7 +200,6 @@ impl ElizaAgentApp {
                 self.config.agent_server_url.clone(),
                 self.config.agent_model.clone(),
                 self.config.max_length_of_conversation_history,
-                self.config.system_prompt.clone(),
             ));
         } else if self.eliza_client.is_some() {
             println!("Reusing existing ElizaClient with conversation history");
@@ -298,7 +295,6 @@ impl ElizaAgentApp {
         self.settings_custom_prompt = self.config.custom_prompt.clone();
         self.settings_agent_model = self.config.agent_model.clone();
         self.settings_max_history = self.config.max_length_of_conversation_history;
-        self.settings_system_prompt = self.config.system_prompt.clone();
         self.settings_use_vrchat_mute_detection = self.config.use_vrchat_mute_detection;
 
         // Restart mute listener for new preset
@@ -398,7 +394,6 @@ impl ElizaAgentApp {
                 self.config.agent_server_url.clone(),
                 self.config.agent_model.clone(),
                 self.config.max_length_of_conversation_history,
-                self.config.system_prompt.clone(),
             ));
         }
 
@@ -766,10 +761,6 @@ impl eframe::App for ElizaAgentApp {
                         ui.add(egui::Slider::new(&mut self.settings_max_history, 1..=50));
                         ui.add_space(10.0);
 
-                        ui.label("System Prompt:");
-                        ui.add(egui::TextEdit::multiline(&mut self.settings_system_prompt).desired_rows(5));
-                        ui.add_space(10.0);
-
                         ui.checkbox(&mut self.settings_use_vrchat_mute_detection, "VRChat のミュート状態を使う");
                         ui.label("  ミュート解除で録音開始、ミュートで録音停止 (OSC 9001ポート)");
                         ui.add_space(10.0);
@@ -806,7 +797,6 @@ impl eframe::App for ElizaAgentApp {
                             self.config.custom_prompt = self.settings_custom_prompt.clone();
                             self.config.agent_model = self.settings_agent_model.clone();
                             self.config.max_length_of_conversation_history = self.settings_max_history;
-                            self.config.system_prompt = self.settings_system_prompt.clone();
 
                             // Apply mute detection setting (restart listener if changed)
                             let mute_changed = self.config.use_vrchat_mute_detection != self.settings_use_vrchat_mute_detection;
@@ -849,7 +839,6 @@ impl eframe::App for ElizaAgentApp {
                             self.settings_custom_prompt = self.config.custom_prompt.clone();
                             self.settings_agent_model = self.config.agent_model.clone();
                             self.settings_max_history = self.config.max_length_of_conversation_history;
-                            self.settings_system_prompt = self.config.system_prompt.clone();
                             self.settings_use_vrchat_mute_detection = self.config.use_vrchat_mute_detection;
 
                             // Restore device index
